@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from google import genai
 # -------------------------------------------------------------
-# CONFIGURACIÓN DE PÁGINA Y SEGURIDAD
+# 1. CONFIGURACIÓN DE PÁGINA Y SEGURIDAD
 # -------------------------------------------------------------
 st.set_page_config(
     page_title="Inteligencia Operativa de Canal",
@@ -29,58 +29,50 @@ def check_password():
 if not check_password():
     st.stop()
 # -------------------------------------------------------------
-# CARGA DE DATOS (SOPORTA .XLSX Y .CSV)
+# 2. CARGA DE BASE DE DATOS (.XLSX)
 # -------------------------------------------------------------
 @st.cache_data
-def procesar_dataframe(df):
-    df.columns = [str(c).strip() for c in df.columns]
-    
-    if "PRCR" in df.columns and "PCRC" not in df.columns:
-        df.rename(columns={"PRCR": "PCRC"}, inplace=True)
-        
-    columnas_numericas = [
-        'Tiempo ACW in', 'Tiempo Saliente', 'Tiempo TT', 'Tiempo Hold', 'Q TMO',
-        'REP 1L', 'REP 2L', 'RetencionTransf', 'TecnicaTransfResto', 'TecnicaTransfPrio',
-        'ComplejasTransf', 'Q llamadas', 'Promotores', 'detractor', 'Q meda',
-        'Res si', 'Q Res', 'Q SPL30 Reiterados', 'Q SPL48 Reiterados',
-        'Q SPL7 Reiterados', 'Q SPL Atendidos'
-    ]
-    for col in columnas_numericas:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-    if 'Periodo' in df.columns:
-        df['Periodo'] = pd.to_datetime(df['Periodo'], errors='coerce')
-        
-    return df
-archivo_subido = st.sidebar.file_uploader("📂 Subir Excel / CSV", type=["xlsx", "xls", "csv"])
-if archivo_subido is not None:
-    if archivo_subido.name.endswith(('.xlsx', '.xls')):
-        df_base = procesar_dataframe(pd.read_excel(archivo_subido))
-    else:
-        df_base = procesar_dataframe(pd.read_csv(archivo_subido))
-    st.sidebar.success(f"Cargado: {archivo_subido.name}")
-else:
+def cargar_datos():
+    df = None
     if os.path.exists("base_datos.xlsx"):
-        df_base = procesar_dataframe(pd.read_excel("base_datos.xlsx"))
+        df = pd.read_excel("base_datos.xlsx")
     elif os.path.exists("base_datos.csv"):
-        df_base = procesar_dataframe(pd.read_csv("base_datos.csv"))
+        df = pd.read_csv("base_datos.csv")
+    
+    if df is not None:
+        df.columns = [str(c).strip() for c in df.columns]
+        if "PRCR" in df.columns and "PCRC" not in df.columns:
+            df.rename(columns={"PRCR": "PCRC"}, inplace=True)
+    return df
+# Carga automática del archivo base
+df_base = cargar_datos()
+# Opción en barra lateral para subir un archivo nuevo si se desea
+archivo_subido = st.sidebar.file_uploader("📂 Actualizar Excel (.xlsx)", type=["xlsx", "xls", "csv"])
+if archivo_subido is not None:
+    if archivo_subido.name.endswith((".xlsx", ".xls")):
+        df_base = pd.read_excel(archivo_subido)
     else:
-        st.error("No se encontró base_datos.xlsx ni base_datos.csv.")
-        st.stop()
+        df_base = pd.read_csv(archivo_subido)
+    df_base.columns = [str(c).strip() for c in df_base.columns]
+    if "PRCR" in df_base.columns and "PCRC" not in df_base.columns:
+        df_base.rename(columns={"PRCR": "PCRC"}, inplace=True)
+    st.sidebar.success("Archivo cargado con éxito.")
+if df_base is None:
+    st.error("No se encontró el archivo base_datos.xlsx en el repositorio.")
+    st.stop()
 # -------------------------------------------------------------
-# CONEXIÓN CON GEMINI
+# 3. CONEXIÓN CON GEMINI
 # -------------------------------------------------------------
 api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 if not api_key:
-    st.sidebar.warning("⚠️ Falta configurar GEMINI_API_KEY en Secrets")
+    st.sidebar.warning("⚠️ Falta configurar GEMINI_API_KEY")
     api_key = st.sidebar.text_input("Ingresa tu Gemini API Key:", type="password")
     if not api_key:
         st.info("Ingresa tu API Key de Google AI Studio para comenzar.")
         st.stop()
 client = genai.Client(api_key=api_key)
 # -------------------------------------------------------------
-# PROMPT MAESTRO
+# 4. REGLAS Y PROMPT DEL AGENTE
 # -------------------------------------------------------------
 SYSTEM_INSTRUCTION = """
 Sos el Agente Único Master de Inteligencia Operativa, un analista senior experto en coordinación de flujos de datos, gobernanza de canales de atención y cálculo analítico de métricas operativas (NPS, TMO, Transferencias y tasas SPL).
@@ -131,19 +123,18 @@ PROPUESTAS FINALES:
 Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario podría consultar a continuación.
 """
 # -------------------------------------------------------------
-# INTERFAZ DE USUARIO
+# 5. INTERFAZ DE USUARIO
 # -------------------------------------------------------------
 st.title("📊 Inteligencia Operativa de Canal")
 st.caption("Agente de Consulta y Análisis de Métricas Operativas (NPS, TMO, SPL, Transferencias)")
 with st.sidebar:
     st.header("Información del Sistema")
-    st.write(f"**Registros:** {len(df_base)}")
-    st.write(f"**PCRCs:** {df_base['PCRC'].nunique()}")
-    st.write(f"**Proveedores:** {', '.join(df_base['PROVEEDOR'].dropna().unique())}")
-    if 'Periodo' in df_base.columns and pd.api.types.is_datetime64_any_dtype(df_base['Periodo']):
-        fechas_validas = df_base['Periodo'].dropna()
-        if not fechas_validas.empty:
-            st.write(f"**Periodos:** {fechas_validas.min().strftime('%Y-%m')} a {fechas_validas.max().strftime('%Y-%m')}")
+    st.write("**Total de filas:**", len(df_base))
+    if "PCRC" in df_base.columns:
+        st.write("**PCRCs cargados:**", df_base["PCRC"].nunique())
+    if "PROVEEDOR" in df_base.columns:
+        proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
+        st.write("**Proveedores:**", ", ".join(proveedores))
     st.divider()
     if st.button("Cerrar Sesión"):
         st.session_state.authenticated = False
@@ -153,7 +144,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "¡Hola! Soy el **Agente Único Master de Inteligencia Operativa**. Tengo acceso completo a la base de datos de métricas.\n\nPuedes consultarme evolutivos a nivel canal, comparativas entre proveedores, cálculos de TMO, NPS, Transferencias o tasas SPL."
+            "content": "¡Hola! Soy el **Agente Único Master de Inteligencia Operativa**. Tengo acceso completo a tu archivo Excel de métricas.\n\nPuedes consultarme evolutivos a nivel canal, comparativas entre proveedores, cálculos de TMO, NPS, Transferencias o tasas SPL."
         }
     ]
 for msg in st.session_state.messages:
@@ -179,28 +170,35 @@ if user_query:
     with st.chat_message("user"):
         st.markdown(user_query)
     with st.chat_message("assistant"):
-        with st.spinner("Consultando base de datos y calculando métricas..."):
-            data_csv = df_base.to_csv(index=False)
-            prompt_completo = f"""
-{SYSTEM_INSTRUCTION}
-BASE DE DATOS COMPLETA CARGADA (Base de datos por Q):
-```csv
-{data_csv}
-
-             for mod in modelos_disponibles:
-            try:
-                response = client.models.generate_content(
-                    model=mod,
-                    contents=prompt_completo,
-                )
-                if response and response.text:
-                    answer = response.text
-                    break
-            except Exception as err:
-                ultimo_error = err
-                continue
-        if answer:
-            st.markdown(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
-        else:
-            st.error(f"Error al procesar la respuesta: {ultimo_error}")
+        with st.spinner("Consultando archivo Excel y calculando métricas..."):
+            
+            # Convertir dataframe a texto plano sin usar f-strings peligrosos
+            data_texto = df_base.to_csv(index=False)
+            
+            prompt_completo = (
+                SYSTEM_INSTRUCTION
+                + "\n\nBASE DE DATOS COMPLETA CARGADA:\n"
+                + data_texto
+                + "\n\nCONSULTA DEL USUARIO:\n"
+                + user_query
+            )
+            modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
+            answer = None
+            ultimo_error = None
+            for mod in modelos_disponibles:
+                try:
+                    response = client.models.generate_content(
+                        model=mod,
+                        contents=prompt_completo,
+                    )
+                    if response and response.text:
+                        answer = response.text
+                        break
+                except Exception as err:
+                    ultimo_error = err
+                    continue
+            if answer:
+                st.markdown(answer)
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+            else:
+                st.error("Error al procesar la respuesta: " + str(ultimo_error))
