@@ -28,7 +28,6 @@ AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
 
-# Carpeta para almacenamiento seguro de usuarios e historiales
 CARPETA_DATOS = "usuarios_data"
 os.makedirs(CARPETA_DATOS, exist_ok=True)
 PATH_USUARIOS = os.path.join(CARPETA_DATOS, "usuarios.json")
@@ -73,65 +72,100 @@ def guardar_historial_usuario(user_id, messages):
     except Exception as e:
         st.error(f"Error al guardar historial: {e}")
 
-# Control de Acceso por Usuario y PIN
+# Control de Acceso en Dos Pasos y Centrado en Pantalla
 def check_password():
+    if "general_authenticated" not in st.session_state:
+        st.session_state.general_authenticated = False
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.session_state.user_display = ""
 
-    if not st.session_state.authenticated:
-        st.title("🔒 Acceso Seguro - Inteligencia Operativa")
-        st.write("Ingresa la contraseña general y tus datos de usuario para acceder a tus consultas privadas.")
-        
-        pwd = st.text_input("Contraseña General:", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            usuario_input = st.text_input("Tu Nombre de Usuario o Legajo:").strip()
-        with col2:
-            pin_input = st.text_input("PIN personal (4 números):", type="password", max_chars=4).strip()
+    # Si ya completó ambos pasos, entra directo
+    if st.session_state.authenticated:
+        return True
+
+    # Estructura centrada en el medio de la pantalla
+    col_izq, col_centro, col_der = st.columns([1.2, 2.0, 1.2])
+
+    with col_centro:
+        # Imagen del bot centrada
+        if os.path.exists("bot_avatar.png"):
+            ci1, ci2, ci3 = st.columns([1, 1.2, 1])
+            with ci2:
+                st.image("bot_avatar.png", width=120)
+
+        # -----------------------------
+        # PASO 1: Contraseña General
+        # -----------------------------
+        if not st.session_state.general_authenticated:
+            st.markdown("<h2 style='text-align: center;'>🔒 Acceso al Canal</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: gray;'>Paso 1 de 2: Ingresa la contraseña general</p>", unsafe_allow_html=True)
             
-        if st.button("Ingresar al Agente"):
-            if pwd != PASSWORD_ACCESO:
-                st.error("Contraseña general incorrecta.")
-                return False
-            if not usuario_input:
-                st.error("Por favor, ingresa tu nombre de usuario o legajo.")
-                return False
-            if not pin_input or len(pin_input) < 4 or not pin_input.isdigit():
-                st.error("Por favor, ingresa un PIN numérico de exactamente 4 dígitos.")
-                return False
-
-            user_id = re.sub(r'[^a-zA-Z0-9_]', '', usuario_input.lower().replace(" ", "_"))
-            usuarios_db = cargar_usuarios()
-
-            if user_id in usuarios_db:
-                # Usuario existente: verificar PIN
-                if usuarios_db[user_id]["pin"] == pin_input:
-                    st.session_state.authenticated = True
-                    st.session_state.current_user = user_id
-                    st.session_state.user_display = usuarios_db[user_id].get("nombre", usuario_input)
-                    st.session_state.messages = cargar_historial_usuario(user_id)
+            pwd = st.text_input("Contraseña General:", type="password", key="general_pwd")
+            if st.button("Continuar ➡️", use_container_width=True):
+                if pwd == PASSWORD_ACCESO:
+                    st.session_state.general_authenticated = True
                     st.rerun()
                 else:
-                    st.error("Este usuario ya está registrado, pero el PIN es incorrecto. Ingresa el PIN que creaste.")
+                    st.error("Contraseña general incorrecta.")
+            return False
+
+        # -----------------------------
+        # PASO 2: Usuario y PIN
+        # -----------------------------
+        else:
+            st.markdown("<h2 style='text-align: center;'>👤 Tu Identificación</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: gray;'>Paso 2 de 2: Accede a tus consultas privadas</p>", unsafe_allow_html=True)
+            
+            usuario_input = st.text_input("Nombre de Usuario o Legajo:").strip()
+            pin_input = st.text_input("PIN personal (4 dígitos):", type="password", max_chars=4).strip()
+            
+            col_b1, col_b2 = st.columns([2, 1])
+            with col_b1:
+                boton_entrar = st.button("Ingresar al Agente 🚀", use_container_width=True)
+            with col_b2:
+                if st.button("⬅️ Volver", use_container_width=True):
+                    st.session_state.general_authenticated = False
+                    st.rerun()
+
+            if boton_entrar:
+                if not usuario_input:
+                    st.error("Ingresa tu nombre o legajo.")
                     return False
-            else:
-                # Usuario nuevo: registrarlo
-                usuarios_db[user_id] = {
-                    "nombre": usuario_input,
-                    "pin": pin_input,
-                    "fecha_registro": datetime.now().strftime("%d/%m/%Y %H:%M")
-                }
-                guardar_usuarios(usuarios_db)
-                st.session_state.authenticated = True
-                st.session_state.current_user = user_id
-                st.session_state.user_display = usuario_input
-                st.session_state.messages = cargar_historial_usuario(user_id)
-                st.success("¡Usuario registrado con éxito!")
-                st.rerun()
-        return False
-    return True
+                if not pin_input or len(pin_input) < 4 or not pin_input.isdigit():
+                    st.error("El PIN debe tener exactamente 4 números.")
+                    return False
+
+                user_id = re.sub(r'[^a-zA-Z0-9_]', '', usuario_input.lower().replace(" ", "_"))
+                usuarios_db = cargar_usuarios()
+
+                if user_id in usuarios_db:
+                    # Usuario existente: validar PIN
+                    if usuarios_db[user_id]["pin"] == pin_input:
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = user_id
+                        st.session_state.user_display = usuarios_db[user_id].get("nombre", usuario_input)
+                        st.session_state.messages = cargar_historial_usuario(user_id)
+                        st.rerun()
+                    else:
+                        st.error("El usuario ya existe, pero el PIN es incorrecto.")
+                        return False
+                else:
+                    # Usuario nuevo: registrarlo
+                    usuarios_db[user_id] = {
+                        "nombre": usuario_input,
+                        "pin": pin_input,
+                        "fecha_registro": datetime.now().strftime("%d/%m/%Y %H:%M")
+                    }
+                    guardar_usuarios(usuarios_db)
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = user_id
+                    st.session_state.user_display = usuario_input
+                    st.session_state.messages = cargar_historial_usuario(user_id)
+                    st.rerun()
+
+            return False
 
 if not check_password():
     st.stop()
@@ -459,7 +493,7 @@ def dibujar_grafico(chart_data):
         st.warning(f"No se pudo graficar automáticamente: {e}")
 
 # -------------------------------------------------------------
-# 6. INTERFAZ DE USUARIO
+# 6. INTERFAZ DE USUARIO PRINCIPAL (EL AGENTE)
 # -------------------------------------------------------------
 
 # Encabezado con imagen del bot y título
@@ -510,6 +544,7 @@ with st.sidebar:
 
     if st.button("🚪 Cerrar Sesión"):
         st.session_state.authenticated = False
+        st.session_state.general_authenticated = False
         st.session_state.current_user = None
         st.session_state.user_display = ""
         st.rerun()
@@ -596,7 +631,7 @@ if user_query:
                 if chart_data:
                     dibujar_grafico(chart_data)
 
-                # Guardamos en sesión y persistimos en el archivo personal del usuario
+                # Persistir mensaje en sesión e historial individual
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": answer_clean,
