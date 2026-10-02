@@ -680,20 +680,18 @@ if user_query:
                 + user_query
             )
             
-            # Lista con tus modelos y respaldo estable para evitar 503
+            # Modelo oficial recomendado por Google en primer lugar
             modelos_disponibles = [
-                "gemini-3.5-flash",
                 "gemini-3.8-flash",
-                "gemini-3-flash-preview",
-                "gemini-2.5-flash",
-                "gemini-2.0-flash"
+                "gemini-3.5-flash",
+                "gemini-3-flash-preview"
             ]
             answer = None
             ultimo_error = None
 
             for mod in modelos_disponibles:
-                # 2 intentos con pausa breve para sortear picos de demanda
-                for intento in range(2):
+                # 3 reintentos con pausa de 2 segundos para amortiguar picos de demanda
+                for intento in range(3):
                     try:
                         response = client.models.generate_content(
                             model=mod,
@@ -704,7 +702,7 @@ if user_query:
                             break
                     except Exception as err:
                         ultimo_error = err
-                        time.sleep(1.5)
+                        time.sleep(2.0)
                 if answer:
                     break
 
