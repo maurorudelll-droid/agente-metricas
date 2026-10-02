@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from google import genai
-# Librería para gráficos interactivos ejecutivos
+# Librería para gráficos interactivos
 try:
     import plotly.graph_objects as go
     HAS_PLOTLY = True
@@ -105,7 +105,6 @@ with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
                 with open(nombre_destino, "wb") as f:
                     f.write(archivo_subido.getbuffer())
                 
-                # Limpiamos la caché global
                 st.cache_data.clear()
                 st.success("✅ Base guardada en disco. Todos los usuarios ahora verán los datos actualizados.")
                 st.rerun()
@@ -214,7 +213,7 @@ if not api_key:
         st.stop()
 client = genai.Client(api_key=api_key)
 # -------------------------------------------------------------
-# 5. PROMPT DEL AGENTE (CON SOPORTE DE GRÁFICOS)
+# 5. PROMPT DEL AGENTE
 # -------------------------------------------------------------
 SYSTEM_INSTRUCTION = """
 PROMPT UNIFICADO: INTELIGENCIA OPERATIVA DE CANAL
@@ -240,12 +239,12 @@ BLOQUE 3: Trazabilidad
 - Filtros aplicados de periodo, PCRC o proveedores.
 - Nivel de agregación aplicado (Nivel Canal, Nivel PCRC o Nivel Proveedor).
 - Base consultada: Base de datos consolidada del canal.
-4. GENERACIÓN DE GRÁFICOS INTERACTIVOS (A PEDIDO DEL USUARIO):
+4. GENERACIÓN DE GRÁFICOS (A PEDIDO DEL USUARIO):
 Si el usuario solicita un gráfico, curva, comparativa visual, torta o distribución (ejemplos: "graficame", "mostrame un gráfico de líneas", "haceme un gráfico de barras comparativo", "gráfico de torta", etc.):
-Debes incluir obligatoriamente al final de tu respuesta un bloque JSON con este formato EXACTO:
-```chart_json
+Debes incluir al final de tu respuesta el bloque delimitado por las etiquetas <chart_json> y </chart_json> con este formato:
+<chart_json>
 {
-  "tipo": "linea", 
+  "tipo": "linea",
   "titulo": "Evolutivo de Métricas a Nivel Canal",
   "eje_x": ["Enero 2026", "Febrero 2026", "Marzo 2026"],
   "series": [
@@ -254,3 +253,209 @@ Debes incluir obligatoriamente al final de tu respuesta un bloque JSON con este 
   ],
   "unidad": "%"
 }
+</chart_json>
+Reglas para el gráfico:
+- "tipo" puede ser:
+  * "linea": para evolutivos temporales a lo largo de los meses.
+  * "barra": para comparar proveedores, PCRCs o métricas en uno o varios periodos.
+  * "torta": para distribuciones o participaciones (ej. Promotores vs Detractores). Para torta, "eje_x" son las etiquetas y "series"[0]["valores"] son los valores numéricos.
+- Los "valores" deben ser solo números float o int (sin '%' ni 's').
+- La "unidad" puede ser "%", "s" o vacía.
+- Si el usuario NO pide expresamente un gráfico o visualización, NO incluyas el bloque chart_json.
+PROPUESTAS FINALES:
+Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario podría consultar a continuación.
+"""
+# Función que dibuja el gráfico con Plotly
+def dibujar_grafico(chart_data):
+    try:
+        tipo = str(chart_data.get("tipo", "linea")).lower()
+        titulo = chart_data.get("titulo", "Visualización Operativa")
+        eje_x = chart_data.get("eje_x", [])
+        series = chart_data.get("series", [])
+        unidad = chart_data.get("unidad", "")
+        if HAS_PLOTLY:
+            fig = go.Figure()
+            # Caso 1: Gráfico de Torta / Dona
+            if tipo in ["torta", "pie", "circular", "dona", "donut"]:
+                valores_torta = series[0].get("valores", []) if series else []
+                fig.add_trace(go.Pie(
+                    labels=eje_x,
+                    values=valores_torta,
+                    hole=0.35,
+                    textinfo="label+percent",
+                    hovertemplate="%{label}: <b>%{value}" + (f"{unidad}" if unidad else "") + "</b><extra></extra>"
+                ))
+            # Caso 2: Gráfico de Barras Comparativo
+            elif tipo in ["barra", "barras", "bar"]:
+                for s in series:
+                    nombre = s.get("nombre", "Métrica")
+                    valores = s.get("valores", [])
+                    fig.add_trace(go.Bar(
+                        x=eje_x,
+                        y=valores,
+                        name=nombre,
+                        text=[f"{v}{unidad}" for v in valores],
+                        textposition="auto"
+                    ))
+                fig.update_layout(barmode="group")
+            # Caso 3: Gráfico de Líneas (Evolutivo)
+            else:
+                for s in series:
+                    nombre = s.get("nombre", "Métrica")
+                    valores = s.get("valores", [])
+                    fig.add_trace(go.Scatter(
+                        x=eje_x,
+                        y=valores,
+                        mode="lines+markers",
+                        name=nombre,
+                        line=dict(width=3),
+                        marker=dict(size=8),
+                        text=[f"{v}{unidad}" for v in valores]
+                    ))
+            fig.update_layout(
+                title=dict(text=f"<b>{titulo}</b>", x=0.02, xanchor="left"),
+                xaxis_title="Periodo / Segmento",
+                yaxis_title=f"Valor ({unidad})" if unidad else "Valor",
+                template="plotly_white",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=60, b=40)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            # Fallback nativo
+            st.info("💡 Tip: Instala `plotly` (`pip install plotly`) para gráficos interactivos.")
+            df_chart = pd.DataFrame(index=eje_x)
+            for s in series:
+                df_chart[s.get("nombre", "Serie")] = s.get("valores", [])
+            st.markdown(f"**📈 {titulo}**")
+            if "barra" in tipo:
+                st.bar_chart(df_chart)
+            else:
+                st.line_chart(df_chart)
+    except Exception as e:
+        st.warning(f"No se pudo graficar automáticamente: {e}")
+# -------------------------------------------------------------
+# 6. INTERFAZ DE USUARIO
+# -------------------------------------------------------------
+# Encabezado con imagen del bot y título
+col_avatar, col_header = st.columns([0.08, 0.92], vertical_alignment="center")
+with col_avatar:
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=65)
+    else:
+        st.markdown("## 🤖")
+with col_header:
+    st.title("Inteligencia Operativa de Canal")
+    st.caption("Agente Único Master de Inteligencia Operativa")
+with st.sidebar:
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=90)
+    st.header("Información del Sistema")
+    st.write("**Total de registros:**", len(df_base))
+    if "PCRC" in df_base.columns:
+        st.write("**PCRCs:**", df_base["PCRC"].nunique())
+    if "PROVEEDOR" in df_base.columns:
+        proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
+        st.write("**Proveedores:**", ", ".join(proveedores))
+    
+    # Fecha de actualización de la base compartida
+    if nombre_archivo_base and os.path.exists(nombre_archivo_base):
+        mtime = datetime.fromtimestamp(os.path.getmtime(nombre_archivo_base)).strftime('%d/%m/%Y %H:%M')
+        st.caption(f"🕒 **Base actualizada:** {mtime}")
+    
+    # Firma solicitada
+    st.caption("⚡ **Powered by Mauro. R**")
+    st.divider()
+    if st.button("Cerrar Sesión"):
+        st.session_state.authenticated = False
+        st.rerun()
+# Historial de Chat
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "¡Hola! Soy el **Agente Único Master de Inteligencia Operativa**.\n\nTengo cargada la base de datos consolidada del canal. Puedes realizarme consultas sobre TMO, NPS, Transferencias y tasas SPL a Nivel Canal, PCRC o Proveedor.\n\n💡 **Tip:** ¡También puedes pedirme gráficos de líneas, barras o tortas!",
+            "chart": None
+        }
+    ]
+# Renderizar mensajes con avatar y gráfico
+for msg in st.session_state.messages:
+    avatar_actual = AVATAR_BOT if msg["role"] == "assistant" else None
+    with st.chat_message(msg["role"], avatar=avatar_actual):
+        st.markdown(msg["content"])
+        if msg.get("chart"):
+            dibujar_grafico(msg["chart"])
+# Consultas sugeridas
+ejemplos = [
+    "Necesito el evolutivo a nivel canal de Enero a Septiembre del 2026 para NPS y SPL 7. Haceme un gráfico de líneas.",
+    "Dame una comparativa en gráfico de barras de Mayo a Septiembre del 2026 para el PCRC 1L Convergente Com, segmentando sus proveedores en la métrica TMO.",
+    "Mostrame un gráfico de torta de la distribución entre Promotores y Detractores a nivel canal en el último mes disponible."
+]
+st.markdown("**Búsquedas sugeridas:**")
+cols = st.columns(3)
+selected_example = None
+for i, ej in enumerate(ejemplos):
+    if cols[i].button(f"Opción {i+1}", help=ej):
+        selected_example = ej
+user_query = st.chat_input("Escribe tu consulta (ej: 'Haceme un gráfico de barras comparando el TMO de proveedores')...")
+if selected_example:
+    user_query = selected_example
+if user_query:
+    st.session_state.messages.append({"role": "user", "content": user_query, "chart": None})
+    with st.chat_message("user"):
+        st.markdown(user_query)
+    with st.chat_message("assistant", avatar=AVATAR_BOT):
+        with st.spinner("Procesando consulta con métricas matemáticas exactas..."):
+            
+            tablas_contexto = (
+                "--- TABLA 1: NIVEL CANAL (Consolidado de toda la base, 1 fila por mes) ---\n"
+                + df_canal_kpis.to_string(index=False)
+                + "\n\n--- TABLA 2: NIVEL PCRC (Desglosado por Campaña / PCRC) ---\n"
+                + df_pcrc_kpis.to_string(index=False)
+                + "\n\n--- TABLA 3: NIVEL PROVEEDOR (Desglosado por PCRC y Proveedor) ---\n"
+                + df_prov_kpis.to_string(index=False)
+            )
+            prompt_completo = (
+                SYSTEM_INSTRUCTION
+                + "\n\nDATOS CALCULADOS DE FORMA MATEMÁTICA EXACTA:\n"
+                + tablas_contexto
+                + "\n\nCONSULTA EXACTA DEL USUARIO:\n"
+                + user_query
+            )
+            modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
+            answer = None
+            ultimo_error = None
+            for mod in modelos_disponibles:
+                try:
+                    response = client.models.generate_content(
+                        model=mod,
+                        contents=prompt_completo,
+                    )
+                    if response and response.text:
+                        answer = response.text
+                        break
+                except Exception as err:
+                    ultimo_error = err
+                    continue
+            if answer:
+                # Detectar bloque de gráfico
+                chart_data = None
+                match = re.search(r"<chart_json>\s*(\{.*?\})\s*</chart_json>", answer, re.DOTALL)
+                if match:
+                    try:
+                        chart_data = json.loads(match.group(1))
+                        answer_clean = re.sub(r"<chart_json>.*?</chart_json>", "", answer, flags=re.DOTALL).strip()
+                    except Exception:
+                        answer_clean = answer
+                else:
+                    answer_clean = answer
+                st.markdown(answer_clean)
+                if chart_data:
+                    dibujar_grafico(chart_data)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": answer_clean,
+                    "chart": chart_data
+                })
+            else:
+                st.error("Error al procesar la respuesta: " + str(ultimo_error))
