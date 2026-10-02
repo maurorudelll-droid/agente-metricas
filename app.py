@@ -4,6 +4,7 @@ import numpy as np
 import os
 import json
 import re
+import random
 from datetime import datetime
 from google import genai
 
@@ -46,6 +47,20 @@ AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
+
+# Frases aleatorias de Los Simpson para el spinner de espera
+FRASES_SIMPSON = [
+    "¡A la grande le puse cuca! Estamos en ello....",
+    "¿Dónde está mi submarino amarillo?",
+    "¡No está aquí! ¡No está aquí! ¡No está aquí! ... Bueno, si esta Aqui..",
+    "A buscar tesoros... o a morir en el intento",
+    "Ya merito llega...",
+    "¡Pronto... muy pronto!",
+    "Mi aparato cerebral está pensando...",
+    "Cargando... por favor, inserte disquete 3 de 4",
+    "Homero no poder pensar ahora, está trabajando",
+    "Estoy procesando la información... A ver, espérame tantito"
+]
 
 CARPETA_DATOS = "usuarios_data"
 os.makedirs(CARPETA_DATOS, exist_ok=True)
@@ -634,7 +649,9 @@ if user_query:
         st.markdown(user_query)
 
     with st.chat_message("assistant", avatar=AVATAR_BOT):
-        with st.spinner("Procesando consulta con métricas matemáticas exactas..."):
+        # Selección aleatoria de una frase de Los Simpson para cada consulta
+        frase_aleatoria = random.choice(FRASES_SIMPSON)
+        with st.spinner(frase_aleatoria):
             
             tablas_contexto = (
                 "--- TABLA 1: NIVEL CANAL (Consolidado de toda la base, 1 fila por mes) ---\n"
