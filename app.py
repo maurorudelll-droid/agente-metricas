@@ -6,8 +6,11 @@ import json
 import re
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from google import genai
+
+# Zona horaria de Argentina (UTC-3)
+TZ_ARG = timezone(timedelta(hours=-3))
 
 # Librería para gráficos interactivos
 try:
@@ -66,6 +69,7 @@ FRASES_SIMPSON = [
 CARPETA_DATOS = "usuarios_data"
 os.makedirs(CARPETA_DATOS, exist_ok=True)
 PATH_USUARIOS = os.path.join(CARPETA_DATOS, "usuarios.json")
+PATH_FECHA_BASE = "fecha_actualizacion.txt"
 
 def cargar_usuarios():
     if os.path.exists(PATH_USUARIOS):
@@ -106,6 +110,23 @@ def guardar_historial_usuario(user_id, messages):
             json.dump(messages, f, ensure_ascii=False, indent=2)
     except Exception as e:
         st.error(f"Error al guardar historial: {e}")
+
+def obtener_fecha_base():
+    if os.path.exists(PATH_FECHA_BASE):
+        try:
+            with open(PATH_FECHA_BASE, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return datetime.now(TZ_ARG).strftime('%d/%m/%Y %H:%M')
+
+def guardar_fecha_base():
+    try:
+        ahora_arg = datetime.now(TZ_ARG).strftime('%d/%m/%Y %H:%M')
+        with open(PATH_FECHA_BASE, "w", encoding="utf-8") as f:
+            f.write(ahora_arg)
+    except Exception as e:
+        st.error(f"Error al registrar fecha: {e}")
 
 # Control de Acceso en Dos Pasos y Centrado en Pantalla
 def check_password():
@@ -182,7 +203,7 @@ def check_password():
                     usuarios_db[user_id] = {
                         "nombre": usuario_input,
                         "pin": pin_input,
-                        "fecha_registro": datetime.now().strftime("%d/%m/%Y %H:%M")
+                        "fecha_registro": datetime.now(TZ_ARG).strftime("%d/%m/%Y %H:%M")
                     }
                     guardar_usuarios(usuarios_db)
                     st.session_state.authenticated = True
@@ -280,6 +301,8 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
                 with open(nombre_destino, "wb") as f:
                     f.write(archivo_subido.getbuffer())
                 
+                # Registramos la fecha real de Argentina
+                guardar_fecha_base()
                 st.cache_data.clear()
                 st.success("✅ Base guardada en disco para todo el equipo.")
                 st.rerun()
@@ -599,10 +622,9 @@ with st.sidebar:
         proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
         st.write("**Proveedores:**", ", ".join(proveedores))
     
-    # Fecha de actualización de la base compartida
-    if nombre_archivo_base and os.path.exists(nombre_archivo_base):
-        mtime = datetime.fromtimestamp(os.path.getmtime(nombre_archivo_base)).strftime('%d/%m/%Y %H:%M')
-        st.caption(f"🕒 **Base actualizada:** {mtime}")
+    # Fecha de actualización fija con horario de Argentina (UTC-3)
+    fecha_base_str = obtener_fecha_base()
+    st.caption(f"🕒 **Base actualizada:** {fecha_base_str}")
     
     st.caption("⚡ **Powered by Mauro. R**")
     st.divider()
@@ -690,7 +712,6 @@ if user_query:
             ultimo_error = None
 
             for mod in modelos_disponibles:
-                # 3 reintentos con pausa de 2 segundos para amortiguar picos de demanda
                 for intento in range(3):
                     try:
                         response = client.models.generate_content(
