@@ -81,23 +81,18 @@ def check_password():
         st.session_state.current_user = None
         st.session_state.user_display = ""
 
-    # Si ya completó ambos pasos, entra directo
     if st.session_state.authenticated:
         return True
 
-    # Estructura centrada en el medio de la pantalla
     col_izq, col_centro, col_der = st.columns([1.2, 2.0, 1.2])
 
     with col_centro:
-        # Imagen del bot centrada
         if os.path.exists("bot_avatar.png"):
             ci1, ci2, ci3 = st.columns([1, 1.2, 1])
             with ci2:
                 st.image("bot_avatar.png", width=120)
 
-        # -----------------------------
         # PASO 1: Contraseña General
-        # -----------------------------
         if not st.session_state.general_authenticated:
             st.markdown("<h2 style='text-align: center;'>🔒 Acceso al Canal</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: gray;'>Paso 1 de 2: Ingresa la contraseña general</p>", unsafe_allow_html=True)
@@ -111,9 +106,7 @@ def check_password():
                     st.error("Contraseña general incorrecta.")
             return False
 
-        # -----------------------------
         # PASO 2: Usuario y PIN
-        # -----------------------------
         else:
             st.markdown("<h2 style='text-align: center;'>👤 Tu Identificación</h2>", unsafe_allow_html=True)
             st.markdown("<p style='text-align: center; color: gray;'>Paso 2 de 2: Accede a tus consultas privadas</p>", unsafe_allow_html=True)
@@ -141,7 +134,6 @@ def check_password():
                 usuarios_db = cargar_usuarios()
 
                 if user_id in usuarios_db:
-                    # Usuario existente: validar PIN
                     if usuarios_db[user_id]["pin"] == pin_input:
                         st.session_state.authenticated = True
                         st.session_state.current_user = user_id
@@ -152,7 +144,6 @@ def check_password():
                         st.error("El usuario ya existe, pero el PIN es incorrecto.")
                         return False
                 else:
-                    # Usuario nuevo: registrarlo
                     usuarios_db[user_id] = {
                         "nombre": usuario_input,
                         "pin": pin_input,
@@ -224,11 +215,28 @@ def cargar_datos_base():
 
 df_base, nombre_archivo_base = cargar_datos_base()
 
-# Sección de Administrador
+# Control de estado del Panel de Administrador (Bloqueo / Desbloqueo)
+if "admin_authenticated" not in st.session_state:
+    st.session_state.admin_authenticated = False
+
 with st.sidebar.expander("🔒 Panel de Administrador"):
-    clave_admin = st.text_input("Contraseña de administrador:", type="password", key="admin_key")
-    if clave_admin == PASSWORD_ADMIN:
+    if not st.session_state.admin_authenticated:
+        clave_admin = st.text_input("Contraseña de administrador:", type="password", key="admin_key_input")
+        if st.button("Acceder como Admin", use_container_width=True):
+            if clave_admin == PASSWORD_ADMIN:
+                st.session_state.admin_authenticated = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+    else:
         st.success("Acceso de Administrador concedido.")
+        
+        # Botón para salir y bloquear de nuevo
+        if st.button("🔒 Volver y Bloquear Panel", use_container_width=True):
+            st.session_state.admin_authenticated = False
+            st.rerun()
+
+        st.write("---")
         archivo_subido = st.file_uploader("Subir nuevo Excel o CSV", type=["xlsx", "xls", "csv"])
         if archivo_subido is not None:
             df_nuevo = leer_archivo_robusto(archivo_subido)
@@ -249,8 +257,6 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
         db_users = cargar_usuarios()
         for uid, info in db_users.items():
             st.caption(f"• **{info.get('nombre', uid)}** (Creado: {info.get('fecha_registro', 'N/D')})")
-    elif clave_admin:
-        st.error("Contraseña de administrador incorrecta.")
 
 if df_base is None or "Periodo" not in df_base.columns:
     st.error("No se encontró el archivo de base de datos o falta la columna 'Periodo'.")
@@ -545,6 +551,7 @@ with st.sidebar:
     if st.button("🚪 Cerrar Sesión"):
         st.session_state.authenticated = False
         st.session_state.general_authenticated = False
+        st.session_state.admin_authenticated = False
         st.session_state.current_user = None
         st.session_state.user_display = ""
         st.rerun()
