@@ -5,6 +5,7 @@ import os
 import json
 import re
 import random
+import time
 from datetime import datetime
 from google import genai
 
@@ -306,7 +307,6 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
                 del db_users[user_a_eliminar]
                 guardar_usuarios(db_users)
 
-                # Eliminar archivo de historial personal
                 path_h = os.path.join(CARPETA_DATOS, f"historial_{user_a_eliminar}.json")
                 if os.path.exists(path_h):
                     try:
@@ -679,21 +679,34 @@ if user_query:
                 + "\n\nCONSULTA EXACTA DEL USUARIO:\n"
                 + user_query
             )
-            modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
+            
+            # Lista con tus modelos y respaldo estable para evitar 503
+            modelos_disponibles = [
+                "gemini-3.5-flash",
+                "gemini-3.8-flash",
+                "gemini-3-flash-preview",
+                "gemini-2.5-flash",
+                "gemini-2.0-flash"
+            ]
             answer = None
             ultimo_error = None
+
             for mod in modelos_disponibles:
-                try:
-                    response = client.models.generate_content(
-                        model=mod,
-                        contents=prompt_completo,
-                    )
-                    if response and response.text:
-                        answer = response.text
-                        break
-                except Exception as err:
-                    ultimo_error = err
-                    continue
+                # 2 intentos con pausa breve para sortear picos de demanda
+                for intento in range(2):
+                    try:
+                        response = client.models.generate_content(
+                            model=mod,
+                            contents=prompt_completo,
+                        )
+                        if response and response.text:
+                            answer = response.text
+                            break
+                    except Exception as err:
+                        ultimo_error = err
+                        time.sleep(1.5)
+                if answer:
+                    break
 
             if answer:
                 # Detectar bloque de gráfico
