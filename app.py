@@ -53,8 +53,7 @@ def procesar_dataframe(df):
         df['Periodo'] = pd.to_datetime(df['Periodo'], errors='coerce')
         
     return df
-# Carga inicial desde archivo local o subido
-archivo_subido = st.sidebar.file_uploader("📂 Actualizar Base de Datos (Excel o CSV)", type=["xlsx", "xls", "csv"])
+archivo_subido = st.sidebar.file_uploader("📂 Subir Excel / CSV", type=["xlsx", "xls", "csv"])
 if archivo_subido is not None:
     if archivo_subido.name.endswith(('.xlsx', '.xls')):
         df_base = procesar_dataframe(pd.read_excel(archivo_subido))
@@ -67,7 +66,7 @@ else:
     elif os.path.exists("base_datos.csv"):
         df_base = procesar_dataframe(pd.read_csv("base_datos.csv"))
     else:
-        st.error("No se encontró ningún archivo de base de datos cargado.")
+        st.error("No se encontró base_datos.xlsx ni base_datos.csv.")
         st.stop()
 # -------------------------------------------------------------
 # CONEXIÓN CON GEMINI
@@ -188,18 +187,7 @@ BASE DE DATOS COMPLETA CARGADA (Base de datos por Q):
 ```csv
 {data_csv}
 
-  
-
-CONSULTA DEL USUARIO:
-"{user_query}"
-"""
-modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
-answer = None
-ultimo_error = None
-
-
-  
-      for mod in modelos_disponibles:
+             for mod in modelos_disponibles:
             try:
                 response = client.models.generate_content(
                     model=mod,
