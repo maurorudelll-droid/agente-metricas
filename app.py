@@ -48,7 +48,7 @@ AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
 
-# Frases aleatorias de Los Simpson para el spinner de espera
+# Frases aleatorias de Los Simpson para el spinner
 FRASES_SIMPSON = [
     "¡A la grande le puse cuca! Estamos en ello....",
     "¿Dónde está mi submarino amarillo?",
@@ -398,23 +398,30 @@ def computar_kpis(df_grp):
     })
     return res_df
 
-# 1. TABLA CANAL
+# 1. TABLA CANAL: Total consolidado del canal (1 fila por mes)
 df_canal_vol = df_base.groupby('Periodo_Str')[COLS_NUM].sum().reset_index()
 df_canal_kpis = pd.concat([df_canal_vol[['Periodo_Str']], computar_kpis(df_canal_vol)], axis=1)
 
-# 2. TABLA PCRC
+# 2. TABLA PCRC: Agrupado por Periodo y PCRC
 if 'PCRC' in df_base.columns:
     df_pcrc_vol = df_base.groupby(['Periodo_Str', 'PCRC'])[COLS_NUM].sum().reset_index()
     df_pcrc_kpis = pd.concat([df_pcrc_vol[['Periodo_Str', 'PCRC']], computar_kpis(df_pcrc_vol)], axis=1)
 else:
     df_pcrc_kpis = pd.DataFrame()
 
-# 3. TABLA PROVEEDOR
-if 'PCRC' in df_base.columns and 'PROVEEDOR' in df_base.columns:
-    df_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
-    df_prov_kpis = pd.concat([df_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_prov_vol)], axis=1)
+# 3. TABLA PROVEEDOR GLOBAL (Puro): Total de cada proveedor en todo el canal (SIN columna PCRC)
+if 'PROVEEDOR' in df_base.columns:
+    df_prov_global_vol = df_base.groupby(['Periodo_Str', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
+    df_prov_global_kpis = pd.concat([df_prov_global_vol[['Periodo_Str', 'PROVEEDOR']], computar_kpis(df_prov_global_vol)], axis=1)
 else:
-    df_prov_kpis = pd.DataFrame()
+    df_prov_global_kpis = pd.DataFrame()
+
+# 4. TABLA PCRC Y PROVEEDOR: Agrupado por Periodo, PCRC y PROVEEDOR
+if 'PCRC' in df_base.columns and 'PROVEEDOR' in df_base.columns:
+    df_pcrc_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
+    df_pcrc_prov_kpis = pd.concat([df_pcrc_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_pcrc_prov_vol)], axis=1)
+else:
+    df_pcrc_prov_kpis = pd.DataFrame()
 
 # -------------------------------------------------------------
 # 4. CONEXIÓN CON GEMINI
@@ -438,26 +445,29 @@ PROMPT UNIFICADO: INTELIGENCIA OPERATIVA DE CANAL
 Sos el Agente Único Master de Inteligencia Operativa, un analista senior experto en coordinación de flujos de datos, gobernanza de canales de atención y cálculo analítico de métricas operativas (NPS, TMO, Transferencias y tasas SPL). Tu misión exclusiva es responder cualquier consulta del usuario accediendo a los datos del sistema, determinar el rango temporal, extraer las métricas requeridas sin errores y unificar todo en una respuesta ejecutiva, estructurada y limpia.
 
 2. FUENTE DE DATOS Y NIVELES DE AGREGACIÓN
-Tienes acceso a 3 tablas con los cálculos matemáticos ya consolidados bajo estricta gobernanza:
-TABLA 1: NIVEL CANAL (Consolidado Global de toda la operación, sin filtros de PCRC ni Proveedor, 1 sola fila por mes).
+Tienes acceso a 4 tablas con los cálculos matemáticos ya consolidados bajo estricta gobernanza:
+TABLA 1: NIVEL CANAL (Consolidado Global de toda la operación, 1 sola fila por mes).
 TABLA 2: NIVEL PCRC (Desglosado por cada PCRC).
-TABLA 3: NIVEL PROVEEDOR (Desglosado por PCRC y Proveedor).
+TABLA 3: NIVEL PROVEEDOR GLOBAL (Total consolidado de cada proveedor en todo el canal, SIN desglosar por PCRC. Solo columnas Periodo, Proveedor y Métricas).
+TABLA 4: NIVEL PCRC Y PROVEEDOR (Desglosado por PCRC y Proveedor a la vez).
 
 REGLA CRUCIAL DE GRANULARIDAD:
-- Cuando la consulta del usuario pida "a nivel canal", "del canal" o la operación general: DEBES USAR OBLIGATORIAMENTE LA TABLA 1 (NIVEL CANAL). En la tabla de respuesta debe haber UNA SOLA FILA POR MES. No incluyas PCRC ni Proveedor.
-- Solo si el usuario pide explícitamente "por PCRC", "por campaña" o nombra un PCRC, usa la TABLA 2.
-- Solo si el usuario pide "por proveedor" o "segmentado proveedores", usa la TABLA 3.
+- Cuando la consulta pida "a nivel canal", "del canal" o la operación general: USA OBLIGATORIAMENTE LA TABLA 1 (NIVEL CANAL).
+- Si el usuario pide "por PCRC", "por campaña" o nombra un solo PCRC: USA LA TABLA 2 (NIVEL PCRC).
+- Si el usuario pide "por proveedor", "solo proveedor", "comparativa de proveedores" o "a nivel proveedor" SIN nombrar un PCRC específico: DEBES USAR OBLIGATORIAMENTE LA TABLA 3 (NIVEL PROVEEDOR GLOBAL). En tu respuesta NO DEBE FIGURAR LA COLUMNA PCRC, solo Periodo, Proveedor y las métricas consultadas.
+- Solo si el usuario pide explícitamente analizar un PCRC particular desglosado por sus proveedores (ej: "para el PCRC 1L Convergente Com segmentado por proveedor"): USA LA TABLA 4.
 
 3. FORMATO DE SALIDA Y VISUALIZACIÓN OBLIGATORIA
 Estructura rigurosamente la respuesta en tres bloques:
 BLOQUE 1: Tabla Markdown principal con los datos del periodo y métricas solicitadas.
 - En la columna Periodo, muestra obligatoriamente el nombre completo del mes en español (ej. Enero 2026, Febrero 2026, etc.).
-- Supresión de celdas duplicadas: Cuando se desglosa por PCRC o Proveedor, deja vacía la celda si el mes o PCRC se repite en filas consecutivas.
+- Supresión de celdas duplicadas: Cuando se desglosa por mes o proveedor, deja vacía la celda si el mes se repite en filas consecutivas.
 - Formato numérico: TMO entero con 's' (ej. 485s). Porcentajes con exactamente 1 decimal (ej. 45.4%).
+- Si el usuario pide resaltar mejor/peor, podés usar emojis verdes (🟢) y rojos (🔴) al lado de los valores extremos.
 BLOQUE 2: Máximo 3 viñetas ultra-cortas de hallazgos clave (desvíos críticos, máximos, mínimos o variaciones temporales).
 BLOQUE 3: Trazabilidad
 - Filtros aplicados de periodo, PCRC o proveedores.
-- Nivel de agregación aplicado (Nivel Canal, Nivel PCRC o Nivel Proveedor).
+- Nivel de agregación aplicado (Nivel Canal, Nivel PCRC, Nivel Proveedor Global o Nivel PCRC y Proveedor).
 - Base consultada: Base de datos consolidada del canal.
 
 4. GENERACIÓN DE GRÁFICOS (A PEDIDO DEL USUARIO):
@@ -649,7 +659,6 @@ if user_query:
         st.markdown(user_query)
 
     with st.chat_message("assistant", avatar=AVATAR_BOT):
-        # Selección aleatoria de una frase de Los Simpson para cada consulta
         frase_aleatoria = random.choice(FRASES_SIMPSON)
         with st.spinner(frase_aleatoria):
             
@@ -658,8 +667,10 @@ if user_query:
                 + df_canal_kpis.to_string(index=False)
                 + "\n\n--- TABLA 2: NIVEL PCRC (Desglosado por Campaña / PCRC) ---\n"
                 + df_pcrc_kpis.to_string(index=False)
-                + "\n\n--- TABLA 3: NIVEL PROVEEDOR (Desglosado por PCRC y Proveedor) ---\n"
-                + df_prov_kpis.to_string(index=False)
+                + "\n\n--- TABLA 3: NIVEL PROVEEDOR GLOBAL (Total consolidado de cada proveedor en el canal, SIN PCRC) ---\n"
+                + df_prov_global_kpis.to_string(index=False)
+                + "\n\n--- TABLA 4: NIVEL PCRC Y PROVEEDOR (Desglosado por PCRC y Proveedor) ---\n"
+                + df_pcrc_prov_kpis.to_string(index=False)
             )
             prompt_completo = (
                 SYSTEM_INSTRUCTION
