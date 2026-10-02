@@ -11,6 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
+PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -32,7 +33,7 @@ if not check_password():
 # 2. CARGA DE BASE DE DATOS (.XLSX)
 # -------------------------------------------------------------
 @st.cache_data
-def cargar_datos():
+def cargar_datos_base():
     df = None
     if os.path.exists("base_datos.xlsx"):
         df = pd.read_excel("base_datos.xlsx")
@@ -44,19 +45,24 @@ def cargar_datos():
         if "PRCR" in df.columns and "PCRC" not in df.columns:
             df.rename(columns={"PRCR": "PCRC"}, inplace=True)
     return df
-# Carga automática del archivo base
-df_base = cargar_datos()
-# Opción en barra lateral para subir un archivo nuevo si se desea
-archivo_subido = st.sidebar.file_uploader("📂 Actualizar Excel (.xlsx)", type=["xlsx", "xls", "csv"])
-if archivo_subido is not None:
-    if archivo_subido.name.endswith((".xlsx", ".xls")):
-        df_base = pd.read_excel(archivo_subido)
-    else:
-        df_base = pd.read_csv(archivo_subido)
-    df_base.columns = [str(c).strip() for c in df_base.columns]
-    if "PRCR" in df_base.columns and "PCRC" not in df_base.columns:
-        df_base.rename(columns={"PRCR": "PCRC"}, inplace=True)
-    st.sidebar.success("Archivo cargado con éxito.")
+df_base = cargar_datos_base()
+# Sección de Administrador para actualizar la base (Protegida con pirania9)
+with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
+    clave_admin = st.text_input("Contraseña de administrador:", type="password", key="admin_key")
+    if clave_admin == PASSWORD_ADMIN:
+        st.success("Acceso de Administrador concedido.")
+        archivo_subido = st.file_uploader("Subir nuevo Excel (.xlsx)", type=["xlsx", "xls", "csv"])
+        if archivo_subido is not None:
+            if archivo_subido.name.endswith((".xlsx", ".xls")):
+                df_base = pd.read_excel(archivo_subido)
+            else:
+                df_base = pd.read_csv(archivo_subido)
+            df_base.columns = [str(c).strip() for c in df_base.columns]
+            if "PRCR" in df_base.columns and "PCRC" not in df_base.columns:
+                df_base.rename(columns={"PRCR": "PCRC"}, inplace=True)
+            st.success("✅ Base de datos actualizada con éxito para esta sesión.")
+    elif clave_admin:
+        st.error("Contraseña de administrador incorrecta.")
 if df_base is None:
     st.error("No se encontró el archivo base_datos.xlsx en el repositorio.")
     st.stop()
@@ -172,7 +178,6 @@ if user_query:
     with st.chat_message("assistant"):
         with st.spinner("Consultando archivo Excel y calculando métricas..."):
             
-            # Convertir dataframe a texto plano sin usar f-strings peligrosos
             data_texto = df_base.to_csv(index=False)
             
             prompt_completo = (
