@@ -28,7 +28,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilo CSS de alto contraste: Bordes oscuros y bien visibles para todos los campos
+# Estilo CSS de alto contraste
 st.markdown("""
 <style>
 /* Borde oscuro y visible para todos los inputs */
@@ -42,20 +42,17 @@ div[data-baseweb="base-input"] {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Al pasar el mouse */
 .stTextInput input:hover, 
 div[data-baseweb="input"]:hover {
     border-color: #0f172a !important;
 }
 
-/* Al hacer clic/foco para escribir */
 .stTextInput input:focus, 
 div[data-baseweb="input"]:focus-within {
     border-color: #2563eb !important;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25) !important;
 }
 
-/* Estilo para los títulos de los campos */
 .stTextInput label {
     font-weight: 600 !important;
     color: #1e293b !important;
@@ -86,6 +83,11 @@ CARPETA_DATOS = "usuarios_data"
 os.makedirs(CARPETA_DATOS, exist_ok=True)
 PATH_USUARIOS = os.path.join(CARPETA_DATOS, "usuarios.json")
 PATH_FECHA_BASE = "fecha_actualizacion.txt"
+
+# Memoria global de presencia en tiempo real compartida entre todos los usuarios
+@st.cache_resource
+def get_presencia_global():
+    return {}
 
 def cargar_usuarios():
     if os.path.exists(PATH_USUARIOS):
@@ -127,7 +129,6 @@ def guardar_historial_usuario(user_id, messages):
     except Exception as e:
         st.error(f"Error al guardar historial: {e}")
 
-# Funciones de fecha fija congelada
 def obtener_fecha_base(nombre_archivo):
     if os.path.exists(PATH_FECHA_BASE):
         try:
@@ -255,6 +256,14 @@ def check_password():
 
 if not check_password():
     st.stop()
+
+# Actualizar latido de presencia en línea del usuario actual
+if st.session_state.authenticated and st.session_state.current_user:
+    presencia = get_presencia_global()
+    presencia[st.session_state.current_user] = {
+        "nombre": st.session_state.user_display,
+        "last_seen": time.time()
+    }
 
 # -------------------------------------------------------------
 # 2. CARGA INTELIGENTE Y ACTUALIZACIÓN EN DISCO PARA TODOS
@@ -651,6 +660,33 @@ with st.sidebar:
     # Identificación del usuario activo
     st.markdown(f"👤 **Usuario:** `{st.session_state.get('user_display', 'Anónimo')}`")
     
+    # ---------------------------------------------------------
+    # BOTÓN VERDE DE USUARIOS ACTIVOS EN TIEMPO REAL
+    # ---------------------------------------------------------
+    presencia = get_presencia_global()
+    ahora_timestamp = time.time()
+    # Usuarios activos en los últimos 5 minutos (300 seg)
+    activos_en_linea = {uid: info for uid, info in presencia.items() if ahora_timestamp - info["last_seen"] < 300}
+    cant_activos = len(activos_en_linea)
+    nombres_activos = [info["nombre"] for info in activos_en_linea.values()]
+
+    # Indicador / Botón verde llamativo
+    texto_activos = f"🟢 {cant_activos} {'Usuario activo' if cant_activos == 1 else 'Usuarios activos'}"
+    st.markdown(f"""
+    <div style="background-color: #dcfce7; border: 2px solid #22c55e; color: #15803d; padding: 10px 12px; border-radius: 8px; font-weight: 700; text-align: center; font-size: 14px; margin-top: 8px; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(34, 197, 94, 0.2);">
+        {texto_activos}
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("👀 Ver quiénes están en línea"):
+        if nombres_activos:
+            for nom in nombres_activos:
+                st.write(f"• 🟢 **{nom}**")
+        else:
+            st.caption("No hay usuarios adicionales en línea.")
+
+    st.divider()
+
     st.header("Información del Sistema")
     st.write("**Total de registros:**", len(df_base))
     if "PCRC" in df_base.columns:
@@ -679,6 +715,9 @@ with st.sidebar:
         st.rerun()
 
     if st.button("🚪 Cerrar Sesión"):
+        presencia = get_presencia_global()
+        if st.session_state.current_user in presencia:
+            del presencia[st.session_state.current_user]
         st.session_state.authenticated = False
         st.session_state.general_authenticated = False
         st.session_state.admin_authenticated = False
