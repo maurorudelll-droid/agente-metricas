@@ -36,7 +36,7 @@ st.markdown("""
 div[data-baseweb="input"], 
 div[data-baseweb="base-input"] {
     background-color: #ffffff !important;
-    border: 2px solid #334155 !important; /* Borde oscuro bien marcado */
+    border: 2px solid #334155 !important;
     border-radius: 8px !important;
     color: #0f172a !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
@@ -51,7 +51,7 @@ div[data-baseweb="input"]:hover {
 /* Al hacer clic/foco para escribir */
 .stTextInput input:focus, 
 div[data-baseweb="input"]:focus-within {
-    border-color: #2563eb !important; /* Azul vibrante */
+    border-color: #2563eb !important;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25) !important;
 }
 
@@ -127,9 +127,8 @@ def guardar_historial_usuario(user_id, messages):
     except Exception as e:
         st.error(f"Error al guardar historial: {e}")
 
-# Funciones de fecha congelada fija
+# Funciones de fecha fija congelada
 def obtener_fecha_base(nombre_archivo):
-    # 1. Si ya existe la fecha fija congelada, la devuelve
     if os.path.exists(PATH_FECHA_BASE):
         try:
             with open(PATH_FECHA_BASE, "r", encoding="utf-8") as f:
@@ -139,7 +138,6 @@ def obtener_fecha_base(nombre_archivo):
         except Exception:
             pass
     
-    # 2. Si no existe, lee la fecha de modificación del archivo y la CONGELA para siempre
     fecha_congelada = "02/10/2026 18:00"
     if nombre_archivo and os.path.exists(nombre_archivo):
         try:
@@ -148,7 +146,6 @@ def obtener_fecha_base(nombre_archivo):
         except Exception:
             pass
 
-    # Guardamos para que no se mueva más
     try:
         with open(PATH_FECHA_BASE, "w", encoding="utf-8") as f:
             f.write(fecha_congelada)
@@ -165,7 +162,7 @@ def guardar_fecha_base():
     except Exception as e:
         st.error(f"Error al registrar fecha: {e}")
 
-# Control de Acceso en Dos Pasos, Centrado y en Tarjeta Destacada
+# Control de Acceso en Dos Pasos y Centrado en Tarjeta
 def check_password():
     if "general_authenticated" not in st.session_state:
         st.session_state.general_authenticated = False
@@ -200,7 +197,7 @@ def check_password():
                         st.rerun()
                     else:
                         st.error("Contraseña general incorrecta.")
-            return False
+                return False
 
             # PASO 2: Usuario y PIN
             else:
@@ -342,7 +339,6 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
                 with open(nombre_destino, "wb") as f:
                     f.write(archivo_subido.getbuffer())
                 
-                # Registramos y congelamos la fecha en hora de Argentina
                 guardar_fecha_base()
                 st.cache_data.clear()
                 st.success("✅ Base guardada en disco para todo el equipo.")
@@ -385,3 +381,412 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
 
 if df_base is None or "Periodo" not in df_base.columns:
     st.error("No se encontró el archivo de base de datos o falta la columna 'Periodo'.")
+    if df_base is not None:
+        st.write("Columnas detectadas:", list(df_base.columns))
+    st.stop()
+
+# -------------------------------------------------------------
+# 3. MOTOR DE CÁLCULO EXACTO EN PYTHON (CERO ALUCINACIÓN)
+# -------------------------------------------------------------
+COLS_NUM = [
+    'Tiempo ACW in', 'Tiempo Saliente', 'Tiempo TT', 'Tiempo Hold', 'Q TMO',
+    'REP 1L', 'REP 2L', 'RetencionTransf', 'TecnicaTransfResto', 'TecnicaTransfPrio',
+    'ComplejasTransf', 'Q llamadas', 'Promotores', 'detractor', 'Q meda',
+    'Res si', 'Q Res', 'Q SPL30 Reiterados', 'Q SPL48 Reiterados',
+    'Q SPL7 Reiterados', 'Q SPL Atendidos'
+]
+
+for col in COLS_NUM:
+    if col in df_base.columns:
+        df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
+    else:
+        df_base[col] = 0
+
+df_base['Periodo_DT'] = pd.to_datetime(df_base['Periodo'], errors='coerce')
+df_base['Periodo_Str'] = df_base['Periodo_DT'].dt.strftime('%Y-%m').fillna(df_base['Periodo'].astype(str))
+
+def computar_kpis(df_grp):
+    q_tmo = df_grp['Q TMO'].replace(0, np.nan)
+    tmo_seg = (df_grp['Tiempo ACW in'] + df_grp['Tiempo Saliente'] + df_grp['Tiempo TT'] + df_grp['Tiempo Hold']) / q_tmo
+    acw_seg = df_grp['Tiempo ACW in'] / q_tmo
+    sal_seg = df_grp['Tiempo Saliente'] / q_tmo
+    tt_seg = df_grp['Tiempo TT'] / q_tmo
+    hold_seg = df_grp['Tiempo Hold'] / q_tmo
+    
+    q_ll = df_grp['Q llamadas'].replace(0, np.nan)
+    transf_1l = (df_grp['REP 1L'] / q_ll) * 100
+    transf_2l = (df_grp['REP 2L'] / q_ll) * 100
+    transf_tot = ((df_grp['REP 1L'] + df_grp['REP 2L']) / q_ll) * 100
+    transf_ret = (df_grp['RetencionTransf'] / q_ll) * 100
+    transf_tec = (df_grp['TecnicaTransfResto'] / q_ll) * 100
+    transf_coe = (df_grp['TecnicaTransfPrio'] / q_ll) * 100
+    transf_comp = (df_grp['ComplejasTransf'] / q_ll) * 100
+    
+    q_meda = df_grp['Q meda'].replace(0, np.nan)
+    nps = ((df_grp['Promotores'] - df_grp['detractor']) / q_meda) * 100
+    prom = (df_grp['Promotores'] / q_meda) * 100
+    detr = (df_grp['detractor'] / q_meda) * 100
+    
+    q_res = df_grp['Q Res'].replace(0, np.nan)
+    resolucion = (df_grp['Res si'] / q_res) * 100
+    
+    q_spl = df_grp['Q SPL Atendidos'].replace(0, np.nan)
+    spl30 = (1 - (df_grp['Q SPL30 Reiterados'] / q_spl)) * 100
+    spl48 = (1 - (df_grp['Q SPL48 Reiterados'] / q_spl)) * 100
+    spl7 = (1 - (df_grp['Q SPL7 Reiterados'] / q_spl)) * 100
+    
+    res_df = pd.DataFrame({
+        'TMO': tmo_seg.round(0).fillna(0).astype(int).astype(str) + 's',
+        'ACW': acw_seg.round(0).fillna(0).astype(int).astype(str) + 's',
+        'T_Saliente': sal_seg.round(0).fillna(0).astype(int).astype(str) + 's',
+        'Tiempo_TT': tt_seg.round(0).fillna(0).astype(int).astype(str) + 's',
+        'Tiempo_Hold': hold_seg.round(0).fillna(0).astype(int).astype(str) + 's',
+        'NPS': nps.round(1).astype(str) + '%',
+        'Promotor': prom.round(1).astype(str) + '%',
+        'Detractor': detr.round(1).astype(str) + '%',
+        'Resolucion': resolucion.round(1).astype(str) + '%',
+        'SPL_7': spl7.round(1).astype(str) + '%',
+        'SPL_30': spl30.round(1).astype(str) + '%',
+        'SPL_48': spl48.round(1).astype(str) + '%',
+        'Transf_1L': transf_1l.round(1).astype(str) + '%',
+        'Transf_2L': transf_2l.round(1).astype(str) + '%',
+        'Transf_Totales': transf_tot.round(1).astype(str) + '%',
+        'Transf_Retencion': transf_ret.round(1).astype(str) + '%',
+        'Transf_Tecnica': transf_tec.round(1).astype(str) + '%',
+        'Transf_COE': transf_coe.round(1).astype(str) + '%',
+        'Transf_Complejas': transf_comp.round(1).astype(str) + '%'
+    })
+    return res_df
+
+# 1. TABLA CANAL: Total consolidado del canal (1 fila por mes)
+df_canal_vol = df_base.groupby('Periodo_Str')[COLS_NUM].sum().reset_index()
+df_canal_kpis = pd.concat([df_canal_vol[['Periodo_Str']], computar_kpis(df_canal_vol)], axis=1)
+
+# 2. TABLA PCRC: Agrupado por Periodo y PCRC
+if 'PCRC' in df_base.columns:
+    df_pcrc_vol = df_base.groupby(['Periodo_Str', 'PCRC'])[COLS_NUM].sum().reset_index()
+    df_pcrc_kpis = pd.concat([df_pcrc_vol[['Periodo_Str', 'PCRC']], computar_kpis(df_pcrc_vol)], axis=1)
+else:
+    df_pcrc_kpis = pd.DataFrame()
+
+# 3. TABLA PROVEEDOR GLOBAL (Puro): Total de cada proveedor en todo el canal (SIN columna PCRC)
+if 'PROVEEDOR' in df_base.columns:
+    df_prov_global_vol = df_base.groupby(['Periodo_Str', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
+    df_prov_global_kpis = pd.concat([df_prov_global_vol[['Periodo_Str', 'PROVEEDOR']], computar_kpis(df_prov_global_vol)], axis=1)
+else:
+    df_prov_global_kpis = pd.DataFrame()
+
+# 4. TABLA PCRC Y PROVEEDOR: Agrupado por Periodo, PCRC y PROVEEDOR
+if 'PCRC' in df_base.columns and 'PROVEEDOR' in df_base.columns:
+    df_pcrc_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
+    df_pcrc_prov_kpis = pd.concat([df_pcrc_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_pcrc_prov_vol)], axis=1)
+else:
+    df_pcrc_prov_kpis = pd.DataFrame()
+
+# -------------------------------------------------------------
+# 4. CONEXIÓN CON GEMINI
+# -------------------------------------------------------------
+api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+if not api_key:
+    st.sidebar.warning("⚠️ Falta configurar GEMINI_API_KEY")
+    api_key = st.sidebar.text_input("Ingresa tu Gemini API Key:", type="password")
+    if not api_key:
+        st.info("Ingresa tu API Key de Google AI Studio para comenzar.")
+        st.stop()
+
+client = genai.Client(api_key=api_key)
+
+# -------------------------------------------------------------
+# 5. PROMPT DEL AGENTE
+# -------------------------------------------------------------
+SYSTEM_INSTRUCTION = """
+PROMPT UNIFICADO: INTELIGENCIA OPERATIVA DE CANAL
+1. ROL Y MISIÓN PRINCIPAL
+Sos el Agente Único Master de Inteligencia Operativa, un analista senior experto en coordinación de flujos de datos, gobernanza de canales de atención y cálculo analítico de métricas operativas (NPS, TMO, Transferencias y tasas SPL). Tu misión exclusiva es responder cualquier consulta del usuario accediendo a los datos del sistema, determinar el rango temporal, extraer las métricas requeridas sin errores y unificar todo en una respuesta ejecutiva, estructurada y limpia.
+
+2. FUENTE DE DATOS Y NIVELES DE AGREGACIÓN
+Tienes acceso a 4 tablas con los cálculos matemáticos ya consolidados bajo estricta gobernanza:
+TABLA 1: NIVEL CANAL (Consolidado Global de toda la operación, 1 sola fila por mes).
+TABLA 2: NIVEL PCRC (Desglosado por cada PCRC).
+TABLA 3: NIVEL PROVEEDOR GLOBAL (Total consolidado de cada proveedor en todo el canal, SIN desglosar por PCRC. Solo columnas Periodo, Proveedor y Métricas).
+TABLA 4: NIVEL PCRC Y PROVEEDOR (Desglosado por PCRC y Proveedor a la vez).
+
+REGLA CRUCIAL DE GRANULARIDAD:
+- Cuando la consulta pida "a nivel canal", "del canal" o la operación general: USA OBLIGATORIAMENTE LA TABLA 1 (NIVEL CANAL).
+- Si el usuario pide "por PCRC", "por campaña" o nombra un solo PCRC: USA LA TABLA 2 (NIVEL PCRC).
+- Si el usuario pide "por proveedor", "solo proveedor", "comparativa de proveedores" o "a nivel proveedor" SIN nombrar un PCRC específico: DEBES USAR OBLIGATORIAMENTE LA TABLA 3 (NIVEL PROVEEDOR GLOBAL). En tu respuesta NO DEBE FIGURAR LA COLUMNA PCRC, solo Periodo, Proveedor y las métricas consultadas.
+- Solo si el usuario pide explícitamente analizar un PCRC particular desglosado por sus proveedores (ej: "para el PCRC 1L Convergente Com segmentado por proveedor"): USA LA TABLA 4.
+
+3. FORMATO DE SALIDA Y VISUALIZACIÓN OBLIGATORIA
+Estructura rigurosamente la respuesta en tres bloques:
+BLOQUE 1: Tabla Markdown principal con los datos del periodo y métricas solicitadas.
+- En la columna Periodo, muestra obligatoriamente el nombre completo del mes en español (ej. Enero 2026, Febrero 2026, etc.).
+- Supresión de celdas duplicadas: Cuando se desglosa por mes o proveedor, deja vacía la celda si el mes se repite en filas consecutivas.
+- Formato numérico: TMO entero con 's' (ej. 485s). Porcentajes con exactamente 1 decimal (ej. 45.4%).
+- Si el usuario pide resaltar mejor/peor, podés usar emojis verdes (🟢) y rojos (🔴) al lado de los valores extremos.
+BLOQUE 2: Máximo 3 viñetas ultra-cortas de hallazgos clave (desvíos críticos, máximos, mínimos o variaciones temporales).
+BLOQUE 3: Trazabilidad
+- Filtros aplicados de periodo, PCRC o proveedores.
+- Nivel de agregación aplicado (Nivel Canal, Nivel PCRC, Nivel Proveedor Global o Nivel PCRC y Proveedor).
+- Base consultada: Base de datos consolidada del canal.
+
+4. GENERACIÓN DE GRÁFICOS (A PEDIDO DEL USUARIO):
+Si el usuario solicita un gráfico, curva, comparativa visual, torta o distribución (ejemplos: "graficame", "mostrame un gráfico de líneas", "haceme un gráfico de barras comparativo", "gráfico de torta", etc.):
+Debes incluir al final de tu respuesta el bloque delimitado por las etiquetas <chart_json> y </chart_json> con este formato:
+<chart_json>
+{
+  "tipo": "linea",
+  "titulo": "Evolutivo de Métricas a Nivel Canal",
+  "eje_x": ["Enero 2026", "Febrero 2026", "Marzo 2026"],
+  "series": [
+    {"nombre": "NPS", "valores": [35.2, 41.0, 39.4]},
+    {"nombre": "SPL 7", "valores": [88.5, 90.1, 89.2]}
+  ],
+  "unidad": "%"
+}
+</chart_json>
+
+Reglas para el gráfico:
+- "tipo" puede ser:
+  * "linea": para evolutivos temporales a lo largo de los meses.
+  * "barra": para comparar proveedores, PCRCs o métricas en uno o varios periodos.
+  * "torta": para distribuciones o participaciones (ej. Promotores vs Detractores). En torta, "eje_x" son las etiquetas y "series"[0]["valores"] son los valores numéricos.
+- Los "valores" deben ser solo números float o int (sin '%' ni 's').
+- La "unidad" puede ser "%", "s" o vacía.
+- Si el usuario NO pide expresamente un gráfico o visualización, NO incluyas el bloque chart_json.
+
+PROPUESTAS FINALES:
+Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario podría consultar a continuación.
+"""
+
+def dibujar_grafico(chart_data):
+    try:
+        tipo = str(chart_data.get("tipo", "linea")).lower()
+        titulo = chart_data.get("titulo", "Visualización Operativa")
+        eje_x = chart_data.get("eje_x", [])
+        series = chart_data.get("series", [])
+        unidad = chart_data.get("unidad", "")
+
+        if HAS_PLOTLY:
+            fig = go.Figure()
+
+            # Caso 1: Torta / Dona
+            if tipo in ["torta", "pie", "circular", "dona", "donut"]:
+                valores_torta = series[0].get("valores", []) if series else []
+                fig.add_trace(go.Pie(
+                    labels=eje_x,
+                    values=valores_torta,
+                    hole=0.35,
+                    textinfo="label+percent",
+                    hovertemplate="%{label}: <b>%{value}" + (f"{unidad}" if unidad else "") + "</b><extra></extra>"
+                ))
+            # Caso 2: Barras
+            elif tipo in ["barra", "barras", "bar"]:
+                for s in series:
+                    nombre = s.get("nombre", "Métrica")
+                    valores = s.get("valores", [])
+                    fig.add_trace(go.Bar(
+                        x=eje_x,
+                        y=valores,
+                        name=nombre,
+                        text=[f"{v}{unidad}" for v in valores],
+                        textposition="auto"
+                    ))
+                fig.update_layout(barmode="group")
+            # Caso 3: Líneas
+            else:
+                for s in series:
+                    nombre = s.get("nombre", "Métrica")
+                    valores = s.get("valores", [])
+                    fig.add_trace(go.Scatter(
+                        x=eje_x,
+                        y=valores,
+                        mode="lines+markers",
+                        name=nombre,
+                        line=dict(width=3),
+                        marker=dict(size=8),
+                        text=[f"{v}{unidad}" for v in valores]
+                    ))
+
+            fig.update_layout(
+                title=dict(text=f"<b>{titulo}</b>", x=0.02, xanchor="left"),
+                xaxis_title="Periodo / Segmento",
+                yaxis_title=f"Valor ({unidad})" if unidad else "Valor",
+                template="plotly_white",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=60, b=40)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            df_chart = pd.DataFrame(index=eje_x)
+            for s in series:
+                df_chart[s.get("nombre", "Serie")] = s.get("valores", [])
+            st.markdown(f"**📈 {titulo}**")
+            if "barra" in tipo:
+                st.bar_chart(df_chart)
+            else:
+                st.line_chart(df_chart)
+    except Exception as e:
+        st.warning(f"No se pudo graficar automáticamente: {e}")
+
+# -------------------------------------------------------------
+# 6. INTERFAZ DE USUARIO PRINCIPAL (EL AGENTE)
+# -------------------------------------------------------------
+
+# Encabezado con imagen del bot y título
+col_avatar, col_header = st.columns([0.08, 0.92], vertical_alignment="center")
+with col_avatar:
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=65)
+    else:
+        st.markdown("## 🤖")
+with col_header:
+    st.title("Inteligencia Operativa de Canal")
+    st.caption("Agente Único Master de Inteligencia Operativa")
+
+with st.sidebar:
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=90)
+
+    # Identificación del usuario activo
+    st.markdown(f"👤 **Usuario:** `{st.session_state.get('user_display', 'Anónimo')}`")
+    
+    st.header("Información del Sistema")
+    st.write("**Total de registros:**", len(df_base))
+    if "PCRC" in df_base.columns:
+        st.write("**PCRCs:**", df_base["PCRC"].nunique())
+    if "PROVEEDOR" in df_base.columns:
+        proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
+        st.write("**Proveedores:**", ", ".join(proveedores))
+    
+    # Fecha de actualización CONGELADA fija
+    fecha_base_str = obtener_fecha_base(nombre_archivo_base)
+    st.caption(f"🕒 **Base actualizada:** {fecha_base_str}")
+    
+    st.caption("⚡ **Powered by Mauro. R**")
+    st.divider()
+
+    # Botón para limpiar su propia conversación
+    if st.button("🗑️ Nueva conversación"):
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": f"¡Hola **{st.session_state.user_display}**! Comenzamos una nueva conversación. ¿Qué necesitas consultar hoy?",
+                "chart": None
+            }
+        ]
+        guardar_historial_usuario(st.session_state.current_user, st.session_state.messages)
+        st.rerun()
+
+    if st.button("🚪 Cerrar Sesión"):
+        st.session_state.authenticated = False
+        st.session_state.general_authenticated = False
+        st.session_state.admin_authenticated = False
+        st.session_state.current_user = None
+        st.session_state.user_display = ""
+        st.rerun()
+
+# Renderizar historial personal del usuario
+for msg in st.session_state.messages:
+    avatar_actual = AVATAR_BOT if msg["role"] == "assistant" else None
+    with st.chat_message(msg["role"], avatar=avatar_actual):
+        st.markdown(msg["content"])
+        if msg.get("chart"):
+            dibujar_grafico(msg["chart"])
+
+# Consultas sugeridas
+ejemplos = [
+    "Necesito el evolutivo a nivel canal de Enero a Septiembre del 2026 para NPS y SPL 7. Haceme un gráfico de líneas.",
+    "Dame una comparativa en gráfico de barras de Mayo a Septiembre del 2026 para el PCRC 1L Convergente Com, segmentando sus proveedores en la métrica TMO.",
+    "Mostrame un gráfico de torta de la distribución entre Promotores y Detractores a nivel canal en el último mes disponible."
+]
+
+st.markdown("**Búsquedas sugeridas:**")
+cols = st.columns(3)
+selected_example = None
+for i, ej in enumerate(ejemplos):
+    if cols[i].button(f"Opción {i+1}", help=ej):
+        selected_example = ej
+
+user_query = st.chat_input("Escribe tu consulta operativa...")
+if selected_example:
+    user_query = selected_example
+
+if user_query:
+    st.session_state.messages.append({"role": "user", "content": user_query, "chart": None})
+    with st.chat_message("user"):
+        st.markdown(user_query)
+
+    with st.chat_message("assistant", avatar=AVATAR_BOT):
+        frase_aleatoria = random.choice(FRASES_SIMPSON)
+        with st.spinner(frase_aleatoria):
+            
+            tablas_contexto = (
+                "--- TABLA 1: NIVEL CANAL (Consolidado de toda la base, 1 fila por mes) ---\n"
+                + df_canal_kpis.to_string(index=False)
+                + "\n\n--- TABLA 2: NIVEL PCRC (Desglosado por Campaña / PCRC) ---\n"
+                + df_pcrc_kpis.to_string(index=False)
+                + "\n\n--- TABLA 3: NIVEL PROVEEDOR GLOBAL (Total consolidado de cada proveedor en el canal, SIN PCRC) ---\n"
+                + df_prov_global_kpis.to_string(index=False)
+                + "\n\n--- TABLA 4: NIVEL PCRC Y PROVEEDOR (Desglosado por PCRC y Proveedor) ---\n"
+                + df_pcrc_prov_kpis.to_string(index=False)
+            )
+            prompt_completo = (
+                SYSTEM_INSTRUCTION
+                + "\n\nDATOS CALCULADOS DE FORMA MATEMÁTICA EXACTA:\n"
+                + tablas_contexto
+                + "\n\nCONSULTA EXACTA DEL USUARIO:\n"
+                + user_query
+            )
+            
+            # Modelo oficial recomendado por Google en primer lugar
+            modelos_disponibles = [
+                "gemini-3.8-flash",
+                "gemini-3.5-flash",
+                "gemini-3-flash-preview"
+            ]
+            answer = None
+            ultimo_error = None
+
+            for mod in modelos_disponibles:
+                for intento in range(3):
+                    try:
+                        response = client.models.generate_content(
+                            model=mod,
+                            contents=prompt_completo,
+                        )
+                        if response and response.text:
+                            answer = response.text
+                            break
+                    except Exception as err:
+                        ultimo_error = err
+                        time.sleep(2.0)
+                if answer:
+                    break
+
+            if answer:
+                # Detectar bloque de gráfico
+                chart_data = None
+                match = re.search(r"<chart_json>\s*(\{.*?\})\s*</chart_json>", answer, re.DOTALL)
+                if match:
+                    try:
+                        chart_data = json.loads(match.group(1))
+                        answer_clean = re.sub(r"<chart_json>.*?</chart_json>", "", answer, flags=re.DOTALL).strip()
+                    except Exception:
+                        answer_clean = answer
+                else:
+                    answer_clean = answer
+
+                st.markdown(answer_clean)
+                if chart_data:
+                    dibujar_grafico(chart_data)
+
+                # Persistir mensaje en sesión e historial individual
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": answer_clean,
+                    "chart": chart_data
+                })
+                guardar_historial_usuario(st.session_state.current_user, st.session_state.messages)
+            else:
+                st.error("Error al procesar la respuesta: " + str(ultimo_error))
