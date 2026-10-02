@@ -23,6 +23,25 @@ st.set_page_config(
     layout="wide"
 )
 
+# Estilo CSS para que los campos de contraseña y texto se distingan claramente
+st.markdown("""
+<style>
+div[data-baseweb="input"] {
+    background-color: #f1f5f9 !important;
+    border: 1.5px solid #94a3b8 !important;
+    border-radius: 8px !important;
+}
+div[data-baseweb="input"]:hover {
+    border-color: #64748b !important;
+}
+div[data-baseweb="input"]:focus-within {
+    border-color: #2563eb !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
@@ -215,7 +234,7 @@ def cargar_datos_base():
 
 df_base, nombre_archivo_base = cargar_datos_base()
 
-# Control de estado del Panel de Administrador (Bloqueo / Desbloqueo)
+# Control de estado del Panel de Administrador
 if "admin_authenticated" not in st.session_state:
     st.session_state.admin_authenticated = False
 
@@ -251,12 +270,39 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
             else:
                 st.error("No se pudo detectar la columna Periodo en el archivo subido.")
         
-        # Ver usuarios registrados
+        # Gestión de Usuarios Registrados
         st.write("---")
         st.markdown("**👥 Usuarios registrados:**")
         db_users = cargar_usuarios()
-        for uid, info in db_users.items():
-            st.caption(f"• **{info.get('nombre', uid)}** (Creado: {info.get('fecha_registro', 'N/D')})")
+        if db_users:
+            for uid, info in db_users.items():
+                st.caption(f"• **{info.get('nombre', uid)}** (Creado: {info.get('fecha_registro', 'N/D')})")
+            
+            st.markdown("##### 🗑️ Eliminar Usuario")
+            uids_disponibles = list(db_users.keys())
+            user_a_eliminar = st.selectbox(
+                "Seleccionar usuario:",
+                options=uids_disponibles,
+                format_func=lambda u: f"{db_users[u].get('nombre', u)} ({u})"
+            )
+            
+            if st.button("Eliminar usuario y su historial", type="secondary", use_container_width=True):
+                nombre_del = db_users[user_a_eliminar].get("nombre", user_a_eliminar)
+                del db_users[user_a_eliminar]
+                guardar_usuarios(db_users)
+
+                # Eliminar archivo de historial personal
+                path_h = os.path.join(CARPETA_DATOS, f"historial_{user_a_eliminar}.json")
+                if os.path.exists(path_h):
+                    try:
+                        os.remove(path_h)
+                    except Exception:
+                        pass
+
+                st.success(f"Usuario '{nombre_del}' y su historial fueron eliminados.")
+                st.rerun()
+        else:
+            st.caption("No hay usuarios registrados aún.")
 
 if df_base is None or "Periodo" not in df_base.columns:
     st.error("No se encontró el archivo de base de datos o falta la columna 'Periodo'.")
