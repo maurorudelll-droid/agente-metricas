@@ -209,7 +209,7 @@ CONSULTA DEL USUARIO:
 """
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.8-flash",
                     contents=prompt_completo,
                 )
                 answer = response.text
