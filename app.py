@@ -207,13 +207,24 @@ BASE DE DATOS COMPLETA CARGADA (Base de datos por Q):
 CONSULTA DEL USUARIO:
 "{user_query}"
 """
-            try:
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=prompt_completo,
-                )
-                answer = response.text
+             # Fallback automatico ante alta demanda
+            modelos_disponibles = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.8-flash"]
+            answer = None
+            ultimo_error = None
+            for mod in modelos_disponibles:
+                try:
+                    response = client.models.generate_content(
+                        model=mod,
+                        contents=prompt_completo,
+                    )
+                    if response and response.text:
+                        answer = response.text
+                        break
+                except Exception as err:
+                    ultimo_error = err
+                    continue
+            if answer:
                 st.markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
-            except Exception as e:
-                st.error(f"Error al procesar la respuesta: {e}")
+            else:
+                st.error(f"Error al procesar la respuesta: {ultimo_error}")
