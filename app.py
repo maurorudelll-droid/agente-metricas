@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+from datetime import datetime
 from google import genai
 # -------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ACCESOS
@@ -11,6 +12,8 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+# Ruta del avatar del bot (si existe la imagen la usa, sino usa el emoji)
+AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
 def check_password():
@@ -31,7 +34,7 @@ def check_password():
 if not check_password():
     st.stop()
 # -------------------------------------------------------------
-# 2. CARGA INTELIGENTE DE EXCEL / CSV (DETECCIÓN DE ENCABEZADOS)
+# 2. CARGA INTELIGENTE Y ACTUALIZACIÓN EN DISCO PARA TODOS
 # -------------------------------------------------------------
 def leer_archivo_robusto(origen):
     try:
@@ -71,28 +74,34 @@ def leer_archivo_robusto(origen):
         else:
             mapa_cols[c] = c_limpio
     df = df.rename(columns=mapa_cols)
-    # Limpiar columnas duplicadas si existieran
     df = df.loc[:, ~df.columns.duplicated()]
     return df
 @st.cache_data
 def cargar_datos_base():
     if os.path.exists("base_datos.xlsx"):
-        return leer_archivo_robusto("base_datos.xlsx")
+        return leer_archivo_robusto("base_datos.xlsx"), "base_datos.xlsx"
     elif os.path.exists("base_datos.csv"):
-        return leer_archivo_robusto("base_datos.csv")
-    return None
-df_base = cargar_datos_base()
-# Sección de Administrador protegida con pirania9
+        return leer_archivo_robusto("base_datos.csv"), "base_datos.csv"
+    return None, None
+df_base, nombre_archivo_base = cargar_datos_base()
+# Sección de Administrador: guarda en disco para que impacte en toda la organización
 with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
     clave_admin = st.text_input("Contraseña de administrador:", type="password", key="admin_key")
     if clave_admin == PASSWORD_ADMIN:
         st.success("Acceso de Administrador concedido.")
-        archivo_subido = st.file_uploader("Subir nuevo Excel (.xlsx)", type=["xlsx", "xls", "csv"])
+        archivo_subido = st.file_uploader("Subir nuevo Excel o CSV", type=["xlsx", "xls", "csv"])
         if archivo_subido is not None:
             df_nuevo = leer_archivo_robusto(archivo_subido)
             if df_nuevo is not None and "Periodo" in df_nuevo.columns:
-                df_base = df_nuevo
-                st.success("✅ Base de datos actualizada con éxito para esta sesión.")
+                # Se guarda físicamente en disco sobrescribiendo la base
+                nombre_destino = "base_datos.xlsx" if archivo_subido.name.endswith(('.xlsx', '.xls')) else "base_datos.csv"
+                with open(nombre_destino, "wb") as f:
+                    f.write(archivo_subido.getbuffer())
+                
+                # Se limpia la caché global para todos los usuarios
+                st.cache_data.clear()
+                st.success("✅ Base guardada en disco. Todos los usuarios ahora verán los datos actualizados.")
+                st.rerun()
             else:
                 st.error("No se pudo detectar la columna Periodo en el archivo subido.")
     elif clave_admin:
@@ -117,7 +126,6 @@ for col in COLS_NUM:
         df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
     else:
         df_base[col] = 0
-# Formatear Periodo de forma ultra-segura
 df_base['Periodo_DT'] = pd.to_datetime(df_base['Periodo'], errors='coerce')
 df_base['Periodo_Str'] = df_base['Periodo_DT'].dt.strftime('%Y-%m').fillna(df_base['Periodo'].astype(str))
 def computar_kpis(df_grp):
@@ -172,16 +180,16 @@ def computar_kpis(df_grp):
         'Transf_Complejas': transf_comp.round(1).astype(str) + '%'
     })
     return res_df
-# 1. TABLA CANAL: Suma toda la base viva sin ningún filtro (1 fila por mes)
+# 1. TABLA CANAL
 df_canal_vol = df_base.groupby('Periodo_Str')[COLS_NUM].sum().reset_index()
 df_canal_kpis = pd.concat([df_canal_vol[['Periodo_Str']], computar_kpis(df_canal_vol)], axis=1)
-# 2. TABLA PCRC: Agrupado por Periodo y PCRC
+# 2. TABLA PCRC
 if 'PCRC' in df_base.columns:
     df_pcrc_vol = df_base.groupby(['Periodo_Str', 'PCRC'])[COLS_NUM].sum().reset_index()
     df_pcrc_kpis = pd.concat([df_pcrc_vol[['Periodo_Str', 'PCRC']], computar_kpis(df_pcrc_vol)], axis=1)
 else:
     df_pcrc_kpis = pd.DataFrame()
-# 3. TABLA PROVEEDOR: Agrupado por Periodo, PCRC y PROVEEDOR
+# 3. TABLA PROVEEDOR
 if 'PCRC' in df_base.columns and 'PROVEEDOR' in df_base.columns:
     df_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
     df_prov_kpis = pd.concat([df_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_prov_vol)], axis=1)
@@ -234,9 +242,20 @@ Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario p
 # -------------------------------------------------------------
 # 6. INTERFAZ DE USUARIO
 # -------------------------------------------------------------
-st.title("📊 Inteligencia Operativa de Canal")
-st.caption("Agente Único Master de Inteligencia Operativa")
+# Encabezado con imagen pequeña del bot y título alineados
+col_avatar, col_header = st.columns([0.08, 0.92], vertical_alignment="center")
+with col_avatar:
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=65)
+    else:
+        st.markdown("## 🤖")
+with col_header:
+    st.title("Inteligencia Operativa de Canal")
+    st.caption("Agente Único Master de Inteligencia Operativa")
 with st.sidebar:
+    # Si existe la imagen, también la mostramos en la barra lateral
+    if os.path.exists("bot_avatar.png"):
+        st.image("bot_avatar.png", width=90)
     st.header("Información del Sistema")
     st.write("**Total de registros:**", len(df_base))
     if "PCRC" in df_base.columns:
@@ -244,6 +263,11 @@ with st.sidebar:
     if "PROVEEDOR" in df_base.columns:
         proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
         st.write("**Proveedores:**", ", ".join(proveedores))
+    
+    # Indicador de fecha/hora de última actualización para todo el equipo
+    if nombre_archivo_base and os.path.exists(nombre_archivo_base):
+        mtime = datetime.fromtimestamp(os.path.getmtime(nombre_archivo_base)).strftime('%d/%m/%Y %H:%M')
+        st.caption(f"🕒 **Base actualizada:** {mtime}")
     st.divider()
     if st.button("Cerrar Sesión"):
         st.session_state.authenticated = False
@@ -256,8 +280,10 @@ if "messages" not in st.session_state:
             "content": "¡Hola! Soy el **Agente Único Master de Inteligencia Operativa**.\n\nTengo cargada la base de datos consolidada del canal. Puedes realizarme consultas sobre TMO, NPS, Transferencias y tasas SPL a Nivel Canal, PCRC o Proveedor."
         }
     ]
+# Renderizar mensajes con el avatar personalizado
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    avatar_actual = AVATAR_BOT if msg["role"] == "assistant" else None
+    with st.chat_message(msg["role"], avatar=avatar_actual):
         st.markdown(msg["content"])
 # Consultas sugeridas
 ejemplos = [
@@ -278,7 +304,7 @@ if user_query:
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
         st.markdown(user_query)
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=AVATAR_BOT):
         with st.spinner("Procesando consulta con métricas matemáticas exactas..."):
             
             tablas_contexto = (
