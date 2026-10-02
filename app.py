@@ -258,14 +258,14 @@ Reglas para el gráfico:
 - "tipo" puede ser:
   * "linea": para evolutivos temporales a lo largo de los meses.
   * "barra": para comparar proveedores, PCRCs o métricas en uno o varios periodos.
-  * "torta": para distribuciones o participaciones (ej. Promotores vs Detractores). Para torta, "eje_x" son las etiquetas y "series"[0]["valores"] son los valores numéricos.
+  * "torta": para distribuciones o participaciones (ej. Promotores vs Detractores). En torta, "eje_x" son las etiquetas y "series"[0]["valores"] son los valores numéricos.
 - Los "valores" deben ser solo números float o int (sin '%' ni 's').
 - La "unidad" puede ser "%", "s" o vacía.
 - Si el usuario NO pide expresamente un gráfico o visualización, NO incluyas el bloque chart_json.
 PROPUESTAS FINALES:
 Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario podría consultar a continuación.
 """
-# Función que dibuja el gráfico con Plotly
+# Función que dibuja el gráfico sin avisos molestos
 def dibujar_grafico(chart_data):
     try:
         tipo = str(chart_data.get("tipo", "linea")).lower()
@@ -322,8 +322,7 @@ def dibujar_grafico(chart_data):
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            # Fallback nativo
-            st.info("💡 Tip: Instala `plotly` (`pip install plotly`) para gráficos interactivos.")
+            # Gráfico de respaldo limpio y sin cartel
             df_chart = pd.DataFrame(index=eje_x)
             for s in series:
                 df_chart[s.get("nombre", "Serie")] = s.get("valores", [])
