@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from google import genai
 
-# Zona horaria de Argentina (UTC-3)
+# Zona horaria fija de Argentina (UTC-3)
 TZ_ARG = timezone(timedelta(hours=-3))
 
 # Librería para gráficos interactivos
@@ -127,14 +127,35 @@ def guardar_historial_usuario(user_id, messages):
     except Exception as e:
         st.error(f"Error al guardar historial: {e}")
 
-def obtener_fecha_base():
+# Funciones de fecha congelada fija
+def obtener_fecha_base(nombre_archivo):
+    # 1. Si ya existe la fecha fija congelada, la devuelve
     if os.path.exists(PATH_FECHA_BASE):
         try:
             with open(PATH_FECHA_BASE, "r", encoding="utf-8") as f:
-                return f.read().strip()
+                contenido = f.read().strip()
+                if contenido:
+                    return contenido
         except Exception:
             pass
-    return datetime.now(TZ_ARG).strftime('%d/%m/%Y %H:%M')
+    
+    # 2. Si no existe, lee la fecha de modificación del archivo y la CONGELA para siempre
+    fecha_congelada = "02/10/2026 18:00"
+    if nombre_archivo and os.path.exists(nombre_archivo):
+        try:
+            mtime = os.path.getmtime(nombre_archivo)
+            fecha_congelada = datetime.fromtimestamp(mtime, tz=TZ_ARG).strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            pass
+
+    # Guardamos para que no se mueva más
+    try:
+        with open(PATH_FECHA_BASE, "w", encoding="utf-8") as f:
+            f.write(fecha_congelada)
+    except Exception:
+        pass
+
+    return fecha_congelada
 
 def guardar_fecha_base():
     try:
@@ -179,7 +200,7 @@ def check_password():
                         st.rerun()
                     else:
                         st.error("Contraseña general incorrecta.")
-                return False
+            return False
 
             # PASO 2: Usuario y PIN
             else:
@@ -308,7 +329,6 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
     else:
         st.success("Acceso de Administrador concedido.")
         
-        # Botón para salir y bloquear de nuevo
         if st.button("🔒 Volver y Bloquear Panel", use_container_width=True):
             st.session_state.admin_authenticated = False
             st.rerun()
@@ -322,6 +342,7 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
                 with open(nombre_destino, "wb") as f:
                     f.write(archivo_subido.getbuffer())
                 
+                # Registramos y congelamos la fecha en hora de Argentina
                 guardar_fecha_base()
                 st.cache_data.clear()
                 st.success("✅ Base guardada en disco para todo el equipo.")
@@ -364,56 +385,3 @@ with st.sidebar.expander("🔒 Panel de Administrador"):
 
 if df_base is None or "Periodo" not in df_base.columns:
     st.error("No se encontró el archivo de base de datos o falta la columna 'Periodo'.")
-    if df_base is not None:
-        st.write("Columnas detectadas:", list(df_base.columns))
-    st.stop()
-
-# -------------------------------------------------------------
-# 3. MOTOR DE CÁLCULO EXACTO EN PYTHON (CERO ALUCINACIÓN)
-# -------------------------------------------------------------
-COLS_NUM = [
-    'Tiempo ACW in', 'Tiempo Saliente', 'Tiempo TT', 'Tiempo Hold', 'Q TMO',
-    'REP 1L', 'REP 2L', 'RetencionTransf', 'TecnicaTransfResto', 'TecnicaTransfPrio',
-    'ComplejasTransf', 'Q llamadas', 'Promotores', 'detractor', 'Q meda',
-    'Res si', 'Q Res', 'Q SPL30 Reiterados', 'Q SPL48 Reiterados',
-    'Q SPL7 Reiterados', 'Q SPL Atendidos'
-]
-
-for col in COLS_NUM:
-    if col in df_base.columns:
-        df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
-    else:
-        df_base[col] = 0
-
-df_base['Periodo_DT'] = pd.to_datetime(df_base['Periodo'], errors='coerce')
-df_base['Periodo_Str'] = df_base['Periodo_DT'].dt.strftime('%Y-%m').fillna(df_base['Periodo'].astype(str))
-
-def computar_kpis(df_grp):
-    q_tmo = df_grp['Q TMO'].replace(0, np.nan)
-    tmo_seg = (df_grp['Tiempo ACW in'] + df_grp['Tiempo Saliente'] + df_grp['Tiempo TT'] + df_grp['Tiempo Hold']) / q_tmo
-    acw_seg = df_grp['Tiempo ACW in'] / q_tmo
-    sal_seg = df_grp['Tiempo Saliente'] / q_tmo
-    tt_seg = df_grp['Tiempo TT'] / q_tmo
-    hold_seg = df_grp['Tiempo Hold'] / q_tmo
-    
-    q_ll = df_grp['Q llamadas'].replace(0, np.nan)
-    transf_1l = (df_grp['REP 1L'] / q_ll) * 100
-    transf_2l = (df_grp['REP 2L'] / q_ll) * 100
-    transf_tot = ((df_grp['REP 1L'] + df_grp['REP 2L']) / q_ll) * 100
-    transf_ret = (df_grp['RetencionTransf'] / q_ll) * 100
-    transf_tec = (df_grp['TecnicaTransfResto'] / q_ll) * 100
-    transf_coe = (df_grp['TecnicaTransfPrio'] / q_ll) * 100
-    transf_comp = (df_grp['ComplejasTransf'] / q_ll) * 100
-    
-    q_meda = df_grp['Q meda'].replace(0, np.nan)
-    nps = ((df_grp['Promotores'] - df_grp['detractor']) / q_meda) * 100
-    prom = (df_grp['Promotores'] / q_meda) * 100
-    detr = (df_grp['detractor'] / q_meda) * 100
-    
-    q_res = df_grp['Q Res'].replace(0, np.nan)
-    resolucion = (df_grp['Res si'] / q_res) * 100
-    
-    q_spl = df_grp['Q SPL Atendidos'].replace(0, np.nan)
-    spl30 = (1 - (df_grp['Q SPL30 Reiterados'] / q_spl)) * 100
-    spl48 = (1 - (df_grp['Q SPL48 Reiterados'] / q_spl)) * 100
-    spl7 = (1 - (df_grp
