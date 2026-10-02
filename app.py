@@ -31,21 +31,56 @@ def check_password():
 if not check_password():
     st.stop()
 # -------------------------------------------------------------
-# 2. CARGA Y LIMPIEZA DE BASE DE DATOS
+# 2. CARGA INTELIGENTE DE EXCEL / CSV (DETECCIÓN DE ENCABEZADOS)
 # -------------------------------------------------------------
+def leer_archivo_robusto(origen):
+    try:
+        if isinstance(origen, str):
+            if origen.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(origen)
+            else:
+                df = pd.read_csv(origen)
+        else:
+            if origen.name.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(origen)
+            else:
+                df = pd.read_csv(origen)
+    except Exception as e:
+        st.error(f"Error al leer el archivo: {e}")
+        return None
+    # Detectar si el encabezado real está en las primeras filas
+    cols_actuales = [str(c).upper().strip() for c in df.columns]
+    if not any("PERIODO" in c for c in cols_actuales):
+        for i in range(min(15, len(df))):
+            fila_valores = [str(v).upper().strip() for v in df.iloc[i].values]
+            if any("PERIODO" in v for v in fila_valores) or any("PCRC" in v or "PRCR" in v for v in fila_valores):
+                df.columns = [str(v).strip() for v in df.iloc[i].values]
+                df = df.iloc[i + 1:].reset_index(drop=True)
+                break
+    # Estandarizar nombres de columnas clave
+    mapa_cols = {}
+    for c in df.columns:
+        c_limpio = str(c).strip()
+        c_u = c_limpio.upper()
+        if c_u == "PERIODO":
+            mapa_cols[c] = "Periodo"
+        elif c_u in ["PCRC", "PRCR"]:
+            mapa_cols[c] = "PCRC"
+        elif c_u == "PROVEEDOR":
+            mapa_cols[c] = "PROVEEDOR"
+        else:
+            mapa_cols[c] = c_limpio
+    df = df.rename(columns=mapa_cols)
+    # Limpiar columnas duplicadas si existieran
+    df = df.loc[:, ~df.columns.duplicated()]
+    return df
 @st.cache_data
 def cargar_datos_base():
-    df = None
     if os.path.exists("base_datos.xlsx"):
-        df = pd.read_excel("base_datos.xlsx")
+        return leer_archivo_robusto("base_datos.xlsx")
     elif os.path.exists("base_datos.csv"):
-        df = pd.read_csv("base_datos.csv")
-    
-    if df is not None:
-        df.columns = [str(c).strip() for c in df.columns]
-        if "PRCR" in df.columns and "PCRC" not in df.columns:
-            df.rename(columns={"PRCR": "PCRC"}, inplace=True)
-    return df
+        return leer_archivo_robusto("base_datos.csv")
+    return None
 df_base = cargar_datos_base()
 # Sección de Administrador protegida con pirania9
 with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
@@ -54,18 +89,18 @@ with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
         st.success("Acceso de Administrador concedido.")
         archivo_subido = st.file_uploader("Subir nuevo Excel (.xlsx)", type=["xlsx", "xls", "csv"])
         if archivo_subido is not None:
-            if archivo_subido.name.endswith((".xlsx", ".xls")):
-                df_base = pd.read_excel(archivo_subido)
+            df_nuevo = leer_archivo_robusto(archivo_subido)
+            if df_nuevo is not None and "Periodo" in df_nuevo.columns:
+                df_base = df_nuevo
+                st.success("✅ Base de datos actualizada con éxito para esta sesión.")
             else:
-                df_base = pd.read_csv(archivo_subido)
-            df_base.columns = [str(c).strip() for c in df_base.columns]
-            if "PRCR" in df_base.columns and "PCRC" not in df_base.columns:
-                df_base.rename(columns={"PRCR": "PCRC"}, inplace=True)
-            st.success("✅ Base de datos actualizada con éxito para esta sesión.")
+                st.error("No se pudo detectar la columna Periodo en el archivo subido.")
     elif clave_admin:
         st.error("Contraseña de administrador incorrecta.")
-if df_base is None:
-    st.error("No se encontró el archivo de base de datos en el repositorio.")
+if df_base is None or "Periodo" not in df_base.columns:
+    st.error("No se encontró el archivo de base de datos o falta la columna 'Periodo'.")
+    if df_base is not None:
+        st.write("Columnas detectadas:", list(df_base.columns))
     st.stop()
 # -------------------------------------------------------------
 # 3. MOTOR DE CÁLCULO EXACTO EN PYTHON (CERO ALUCINACIÓN)
@@ -80,8 +115,11 @@ COLS_NUM = [
 for col in COLS_NUM:
     if col in df_base.columns:
         df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
-# Formatear Periodo a Año-Mes
-df_base['Periodo_Str'] = pd.to_datetime(df_base['Periodo'], errors='coerce').dt.strftime('%Y-%m')
+    else:
+        df_base[col] = 0
+# Formatear Periodo de forma ultra-segura
+df_base['Periodo_DT'] = pd.to_datetime(df_base['Periodo'], errors='coerce')
+df_base['Periodo_Str'] = df_base['Periodo_DT'].dt.strftime('%Y-%m').fillna(df_base['Periodo'].astype(str))
 def computar_kpis(df_grp):
     q_tmo = df_grp['Q TMO'].replace(0, np.nan)
     tmo_seg = (df_grp['Tiempo ACW in'] + df_grp['Tiempo Saliente'] + df_grp['Tiempo TT'] + df_grp['Tiempo Hold']) / q_tmo
@@ -138,11 +176,17 @@ def computar_kpis(df_grp):
 df_canal_vol = df_base.groupby('Periodo_Str')[COLS_NUM].sum().reset_index()
 df_canal_kpis = pd.concat([df_canal_vol[['Periodo_Str']], computar_kpis(df_canal_vol)], axis=1)
 # 2. TABLA PCRC: Agrupado por Periodo y PCRC
-df_pcrc_vol = df_base.groupby(['Periodo_Str', 'PCRC'])[COLS_NUM].sum().reset_index()
-df_pcrc_kpis = pd.concat([df_pcrc_vol[['Periodo_Str', 'PCRC']], computar_kpis(df_pcrc_vol)], axis=1)
+if 'PCRC' in df_base.columns:
+    df_pcrc_vol = df_base.groupby(['Periodo_Str', 'PCRC'])[COLS_NUM].sum().reset_index()
+    df_pcrc_kpis = pd.concat([df_pcrc_vol[['Periodo_Str', 'PCRC']], computar_kpis(df_pcrc_vol)], axis=1)
+else:
+    df_pcrc_kpis = pd.DataFrame()
 # 3. TABLA PROVEEDOR: Agrupado por Periodo, PCRC y PROVEEDOR
-df_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
-df_prov_kpis = pd.concat([df_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_prov_vol)], axis=1)
+if 'PCRC' in df_base.columns and 'PROVEEDOR' in df_base.columns:
+    df_prov_vol = df_base.groupby(['Periodo_Str', 'PCRC', 'PROVEEDOR'])[COLS_NUM].sum().reset_index()
+    df_prov_kpis = pd.concat([df_prov_vol[['Periodo_Str', 'PCRC', 'PROVEEDOR']], computar_kpis(df_prov_vol)], axis=1)
+else:
+    df_prov_kpis = pd.DataFrame()
 # -------------------------------------------------------------
 # 4. CONEXIÓN CON GEMINI
 # -------------------------------------------------------------
