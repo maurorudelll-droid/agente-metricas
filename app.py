@@ -207,8 +207,8 @@ BASE DE DATOS COMPLETA CARGADA (Base de datos por Q):
 CONSULTA DEL USUARIO:
 "{user_query}"
 """
-             # Fallback automatico ante alta demanda
-            modelos_disponibles = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.8-flash"]
+            # Fallback automatico con el modelo estable
+            modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
             answer = None
             ultimo_error = None
             for mod in modelos_disponibles:
