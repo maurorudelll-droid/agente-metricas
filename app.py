@@ -2,8 +2,16 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import json
+import re
 from datetime import datetime
 from google import genai
+# Librería para gráficos interactivos ejecutivos
+try:
+    import plotly.graph_objects as go
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 # -------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA Y ACCESOS
 # -------------------------------------------------------------
@@ -12,7 +20,7 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
-# Ruta del avatar del bot (si existe la imagen la usa, sino usa el emoji)
+# Avatar del bot: usa la imagen si existe, sino el emoji
 AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
 PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
 PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
@@ -84,7 +92,7 @@ def cargar_datos_base():
         return leer_archivo_robusto("base_datos.csv"), "base_datos.csv"
     return None, None
 df_base, nombre_archivo_base = cargar_datos_base()
-# Sección de Administrador: guarda en disco para que impacte en toda la organización
+# Sección de Administrador: guarda en disco para impacto global
 with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
     clave_admin = st.text_input("Contraseña de administrador:", type="password", key="admin_key")
     if clave_admin == PASSWORD_ADMIN:
@@ -93,12 +101,11 @@ with st.sidebar.expander("🔒 Actualizar Base (Solo Administrador)"):
         if archivo_subido is not None:
             df_nuevo = leer_archivo_robusto(archivo_subido)
             if df_nuevo is not None and "Periodo" in df_nuevo.columns:
-                # Se guarda físicamente en disco sobrescribiendo la base
                 nombre_destino = "base_datos.xlsx" if archivo_subido.name.endswith(('.xlsx', '.xls')) else "base_datos.csv"
                 with open(nombre_destino, "wb") as f:
                     f.write(archivo_subido.getbuffer())
                 
-                # Se limpia la caché global para todos los usuarios
+                # Limpiamos la caché global
                 st.cache_data.clear()
                 st.success("✅ Base guardada en disco. Todos los usuarios ahora verán los datos actualizados.")
                 st.rerun()
@@ -207,7 +214,7 @@ if not api_key:
         st.stop()
 client = genai.Client(api_key=api_key)
 # -------------------------------------------------------------
-# 5. PROMPT DEL AGENTE
+# 5. PROMPT DEL AGENTE (CON SOPORTE DE GRÁFICOS)
 # -------------------------------------------------------------
 SYSTEM_INSTRUCTION = """
 PROMPT UNIFICADO: INTELIGENCIA OPERATIVA DE CANAL
@@ -233,112 +240,17 @@ BLOQUE 3: Trazabilidad
 - Filtros aplicados de periodo, PCRC o proveedores.
 - Nivel de agregación aplicado (Nivel Canal, Nivel PCRC o Nivel Proveedor).
 - Base consultada: Base de datos consolidada del canal.
-PROPUESTAS FINALES:
-Al terminar, proponer 2 o 3 consultas específicas relacionadas que el usuario podría consultar a continuación:
-1) Necesito el evolutivo a nivel canal, desde Enero a Septiembre del 2026, para las metricas NPS, SPL 7 y Transferencias Totales.
-2) Dame una comparativa de Mayo a Septiembre del 2026, para el PCRC 1L Convergente Com, segmentado sus proveedores, en las metricas TMO, SPL 30, SPL 48 y Transferencias a 2 Lineas.
-3) Quiero un evolutivo de TMO, Resolucion y Transferencias a COE, para el PCRC 1L Conv Priority, segmentado sus proveedores, desde Enero a Septiembre del 2026. Decime quien es Bench y quien no.
-"""
-# -------------------------------------------------------------
-# 6. INTERFAZ DE USUARIO
-# -------------------------------------------------------------
-# Encabezado con imagen pequeña del bot y título alineados
-col_avatar, col_header = st.columns([0.08, 0.92], vertical_alignment="center")
-with col_avatar:
-    if os.path.exists("bot_avatar.png"):
-        st.image("bot_avatar.png", width=65)
-    else:
-        st.markdown("## 🤖")
-with col_header:
-    st.title("Inteligencia Operativa de Canal")
-    st.caption("Agente Único Master de Inteligencia Operativa")
-with st.sidebar:
-    # Si existe la imagen, también la mostramos en la barra lateral
-    if os.path.exists("bot_avatar.png"):
-        st.image("bot_avatar.png", width=90)
-    st.header("Información del Sistema")
-    st.write("**Total de registros:**", len(df_base))
-    if "PCRC" in df_base.columns:
-        st.write("**PCRCs:**", df_base["PCRC"].nunique())
-    if "PROVEEDOR" in df_base.columns:
-        proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
-        st.write("**Proveedores:**", ", ".join(proveedores))
-    
-    # Indicador de fecha/hora de última actualización para todo el equipo
-    if nombre_archivo_base and os.path.exists(nombre_archivo_base):
-        mtime = datetime.fromtimestamp(os.path.getmtime(nombre_archivo_base)).strftime('%d/%m/%Y %H:%M')
-        st.caption(f"🕒 **Base actualizada:** {mtime}")
-    st.divider()
-    if st.button("Cerrar Sesión"):
-        st.session_state.authenticated = False
-        st.rerun()
-# Historial de Chat
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": "¡Hola! Soy el **Agente Único Master de Inteligencia Operativa**.\n\nTengo cargada la base de datos consolidada del canal. Puedes realizarme consultas sobre TMO, NPS, Transferencias y tasas SPL a Nivel Canal, PCRC o Proveedor."
-        }
-    ]
-# Renderizar mensajes con el avatar personalizado
-for msg in st.session_state.messages:
-    avatar_actual = AVATAR_BOT if msg["role"] == "assistant" else None
-    with st.chat_message(msg["role"], avatar=avatar_actual):
-        st.markdown(msg["content"])
-# Consultas sugeridas
-ejemplos = [
-    "Necesito el evolutivo a nivel canal, desde Enero a Septiembre del 2026, para las metricas NPS, SPL 7 y Transferencias Totales.",
-    "Dame una comparativa de Mayo a Septiembre del 2026, para el PCRC 1L Convergente Com, segmentado sus proveedores, en las metricas TMO, SPL 30, SPL 48 y Transferencias a 2 Lineas.",
-    "Quiero un evolutivo de TMO, Resolucion y Transferencias a COE, para el PCRC 1L Conv Priority, segmentado sus proveedores, desde Enero a Septiembre del 2026. Decime quien es Bench y quien no."
-]
-st.markdown("**Búsquedas sugeridas:**")
-cols = st.columns(3)
-selected_example = None
-for i, ej in enumerate(ejemplos):
-    if cols[i].button(f"Opción {i+1}", help=ej):
-        selected_example = ej
-user_query = st.chat_input("Escribe tu consulta operativa...")
-if selected_example:
-    user_query = selected_example
-if user_query:
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    with st.chat_message("user"):
-        st.markdown(user_query)
-    with st.chat_message("assistant", avatar=AVATAR_BOT):
-        with st.spinner("Procesando consulta con métricas matemáticas exactas..."):
-            
-            tablas_contexto = (
-                "--- TABLA 1: NIVEL CANAL (Consolidado de toda la base, 1 fila por mes) ---\n"
-                + df_canal_kpis.to_string(index=False)
-                + "\n\n--- TABLA 2: NIVEL PCRC (Desglosado por Campaña / PCRC) ---\n"
-                + df_pcrc_kpis.to_string(index=False)
-                + "\n\n--- TABLA 3: NIVEL PROVEEDOR (Desglosado por PCRC y Proveedor) ---\n"
-                + df_prov_kpis.to_string(index=False)
-            )
-            prompt_completo = (
-                SYSTEM_INSTRUCTION
-                + "\n\nDATOS CALCULADOS DE FORMA MATEMÁTICA EXACTA:\n"
-                + tablas_contexto
-                + "\n\nCONSULTA EXACTA DEL USUARIO:\n"
-                + user_query
-            )
-            modelos_disponibles = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3-flash-preview"]
-            answer = None
-            ultimo_error = None
-            for mod in modelos_disponibles:
-                try:
-                    response = client.models.generate_content(
-                        model=mod,
-                        contents=prompt_completo,
-                    )
-                    if response and response.text:
-                        answer = response.text
-                        break
-                except Exception as err:
-                    ultimo_error = err
-                    continue
-            if answer:
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-            else:
-                st.error("Error al procesar la respuesta: " + str(ultimo_error))
+4. GENERACIÓN DE GRÁFICOS INTERACTIVOS (A PEDIDO DEL USUARIO):
+Si el usuario solicita un gráfico, curva, comparativa visual, torta o distribución (ejemplos: "graficame", "mostrame un gráfico de líneas", "haceme un gráfico de barras comparativo", "gráfico de torta", etc.):
+Debes incluir obligatoriamente al final de tu respuesta un bloque JSON con este formato EXACTO:
+```chart_json
+{
+  "tipo": "linea", 
+  "titulo": "Evolutivo de Métricas a Nivel Canal",
+  "eje_x": ["Enero 2026", "Febrero 2026", "Marzo 2026"],
+  "series": [
+    {"nombre": "NPS", "valores": [35.2, 41.0, 39.4]},
+    {"nombre": "SPL 7", "valores": [88.5, 90.1, 89.2]}
+  ],
+  "unidad": "%"
+}
