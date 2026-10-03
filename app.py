@@ -28,7 +28,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilo CSS de alto contraste
+# Estilo CSS de alto contraste y compresión de panel
 st.markdown("""
 <style>
 /* Borde oscuro y visible para todos los inputs */
@@ -50,7 +50,12 @@ div[data-baseweb="input"]:hover {
 .stTextInput input:focus, 
 div[data-baseweb="input"]:focus-within {
     border-color: #2563eb !important;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25) !important;
+}
+
+.stTextInput label {
+    font-weight: 600 !important;
+    color: #1e293b !important;
 }
 
 /* Botones principales destacados */
@@ -66,42 +71,58 @@ div.stButton > button[kind="primary"]:hover {
     background-color: #1d4ed8 !important;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
 }
+
+/* Reducción de espaciados en la barra lateral para evitar scroll */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: 0.32rem !important;
+}
+[data-testid="stSidebar"] {
+    padding-top: 0.8rem !important;
+    padding-bottom: 0.5rem !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] {
+    margin-bottom: 0.15rem !important;
+}
+[data-testid="stSidebar"] button {
+    padding: 0.3rem 0.5rem !important;
+    font-size: 0.82rem !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
-PASSWORD_GENERAL = "atencion2026"
-PASSWORD_ADMIN = "pirania9"
-CARPETA_DATOS = "usuarios_data"
-ARCHIVO_USUARIOS = os.path.join(CARPETA_DATOS, "usuarios.json")
-ARCHIVO_FECHA_BASE = "fecha_actualizacion.txt"
 AVATAR_BOT = "bot_avatar.png" if os.path.exists("bot_avatar.png") else "🤖"
+
+PASSWORD_ACCESO = st.secrets.get("APP_PASSWORD", "atencion2026")
+PASSWORD_ADMIN = st.secrets.get("ADMIN_PASSWORD", "pirania9")
+
+# Frases aleatorias de Los Simpson para el spinner
+FRASES_SIMPSON = [
+    "¡A la grande le puse cuca! Estamos en ello....",
+    "¿Dónde está mi submarino amarillo?",
+    "¡No está aquí! ¡No está aquí! ¡No está aquí! ... Bueno, si esta Aqui..",
+    "A buscar tesoros... o a morir en el intento",
+    "Ya merito llega...",
+    "¡Pronto... muy pronto!",
+    "Mi aparato cerebral está pensando...",
+    "Cargando... por favor, inserte disquete 3 de 4",
+    "Homero no poder pensar ahora, está trabajando",
+    "Estoy procesando la información... A ver, espérame tantito"
+]
+
+CARPETA_DATOS = "usuarios_data"
+os.makedirs(CARPETA_DATOS, exist_ok=True)
+PATH_USUARIOS = os.path.join(CARPETA_DATOS, "usuarios.json")
+PATH_FECHA_BASE = "fecha_actualizacion.txt"
 
 # Memoria global de presencia en tiempo real compartida entre todos los usuarios
 @st.cache_resource
 def get_presencia_global():
     return {}
 
-if not os.path.exists(CARPETA_DATOS):
-    os.makedirs(CARPETA_DATOS, exist_ok=True)
-
-# 10 Frases célebres de Los Simpson para el spinner
-FRASES_SIMPSON = [
-    "D'oh! Procesando métricas a la velocidad de Homero tras una rosquilla...",
-    "¡Excelente! Como diría el Sr. Burns, calculando cada centavo de TMO...",
-    "No te prometo que no me equivoque, soy como Homero en la planta nuclear...",
-    "¡Ay caramba! Extrayendo los datos de la base...",
-    "Sin tele y sin cerveza, Homero pierde la cabeza (pero no las métricas)...",
-    "Marge, creo que odio a Michael Jackson... no, espera, calculando NPS...",
-    "¡Trabajo muy duro, como un esclavo! Compilando transferencias y SPL...",
-    "A la grande le puse Cuca... organizando la tabla de resultados...",
-    "¿Aló? ¿Está Amanda? ¿Amanda Larga? Consultando al Agente de Canal...",
-    "Vas a morir, Moe... wiii... Generando análisis de contacto con precisión..."
-]
-
 def cargar_usuarios():
-    if os.path.exists(ARCHIVO_USUARIOS):
+    if os.path.exists(PATH_USUARIOS):
         try:
-            with open(ARCHIVO_USUARIOS, "r", encoding="utf-8") as f:
+            with open(PATH_USUARIOS, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -109,7 +130,7 @@ def cargar_usuarios():
 
 def guardar_usuarios(db):
     try:
-        with open(ARCHIVO_USUARIOS, "w", encoding="utf-8") as f:
+        with open(PATH_USUARIOS, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
@@ -137,25 +158,25 @@ def guardar_historial_usuario(user_id, messages):
         pass
 
 def obtener_fecha_base(archivo_actual):
-    if os.path.exists(ARCHIVO_FECHA_BASE):
+    if os.path.exists(PATH_FECHA_BASE):
         try:
-            with open(ARCHIVO_FECHA_BASE, "r", encoding="utf-8") as f:
-                fecha_guardada = f.read().strip()
-                if fecha_guardada:
-                    return fecha_guardada
+            with open(PATH_FECHA_BASE, "r", encoding="utf-8") as f:
+                f_txt = f.read().strip()
+                if f_txt:
+                    return f_txt
         except Exception:
             pass
-    
+            
     ahora_arg = datetime.now(TZ_ARG)
-    fecha_defecto = ahora_arg.strftime('%d/%m/%Y %H:%M hs')
+    fecha_defecto = ahora_arg.strftime('%d/%m/%Y %H:%M')
     guardar_fecha_base(fecha_defecto)
     return fecha_defecto
 
 def guardar_fecha_base(fecha_str=None):
     if not fecha_str:
-        fecha_str = datetime.now(TZ_ARG).strftime('%d/%m/%Y %H:%M hs')
+        fecha_str = datetime.now(TZ_ARG).strftime('%d/%m/%Y %H:%M')
     try:
-        with open(ARCHIVO_FECHA_BASE, "w", encoding="utf-8") as f:
+        with open(PATH_FECHA_BASE, "w", encoding="utf-8") as f:
             f.write(fecha_str)
     except Exception:
         pass
@@ -176,9 +197,9 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    col1, col2, col3 = st.columns([1, 1.3, 1])
+    col1, col2, col3 = st.columns([1, 1.4, 1])
     with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         col_img, col_txt = st.columns([0.25, 0.75], vertical_alignment="center")
         with col_img:
             if os.path.exists("bot_avatar.png"):
@@ -193,7 +214,7 @@ def check_password():
             st.info("🔒 Ingresa la contraseña general del sistema:")
             pwd = st.text_input("Contraseña de Acceso", type="password", key="general_pwd_input")
             if st.button("Continuar", key="btn_general_pwd", type="primary", use_container_width=True):
-                if pwd == PASSWORD_GENERAL:
+                if pwd == PASSWORD_ACCESO:
                     st.session_state.general_authenticated = True
                     st.rerun()
                 else:
@@ -560,7 +581,7 @@ CONTEXTO_MATEMATICO = crear_resumen_contexto()
 # -------------------------------------------------------------
 INSTRUCCIONES_GRAFICO = """
 REGLA CRUCIAL PARA GRÁFICOS INTERACTIVOS:
-Si el usuario te pide explícitamente ver un gráfico, evolución, tendencia, comparativa gráfica o visualizar visualmente, DEBES generar al final de tu respuesta un bloque XML exacto con el tag <chart_json> conteniendo la estructura JSON del gráfico. NO USES comillas triples ``` adentro del tag.
+Si el usuario te pide explícitamente ver un gráfico, evolución, tendencia, comparativa gráfica o visualizar visualmente, DEBES generar al final de tu respuesta un bloque XML exacto con el tag <chart_json> conteniendo la estructura JSON del gráfico. NO USES comillas triples adentro del tag.
 
 Estructura JSON:
 <chart_json>
@@ -582,73 +603,57 @@ Tipos soportados:
 """
 
 def dibujar_grafico(chart_data):
-    if not HAS_PLOTLY or not chart_data:
+    if not chart_data:
         return
     try:
         tipo = str(chart_data.get("tipo", "linea")).lower()
         titulo = chart_data.get("titulo", "Gráfico de Métricas")
-        x_vals = chart_data.get("x", [])
+        eje_x = chart_data.get("x", [])
         series = chart_data.get("series", [])
         unidad = chart_data.get("unidad", "")
 
-        fig = go.Figure()
-
-        if tipo in ["linea", "line"]:
+        if HAS_PLOTLY:
+            fig = go.Figure()
+            if "linea" in tipo:
+                for s in series:
+                    fig.add_trace(go.Scatter(
+                        x=eje_x,
+                        y=s.get("valores", []),
+                        mode="lines+markers",
+                        name=s.get("nombre", "Serie"),
+                        line=dict(width=3),
+                        marker=dict(size=8)
+                    ))
+                fig.update_layout(xaxis_title="Periodo", yaxis_title=unidad)
+            elif "barra" in tipo:
+                for s in series:
+                    fig.add_trace(go.Bar(
+                        x=eje_x,
+                        y=s.get("valores", []),
+                        name=s.get("nombre", "Serie")
+                    ))
+                fig.update_layout(barmode="group", yaxis_title=unidad)
+            elif "torta" in tipo:
+                labels = eje_x
+                values = series[0].get("valores", []) if series else []
+                fig.add_trace(go.Pie(labels=labels, values=values, hole=0.35))
+            
+            fig.update_layout(
+                title=f"<b>{titulo}</b>",
+                template="plotly_white",
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            df_chart = pd.DataFrame(index=eje_x)
             for s in series:
-                fig.add_trace(go.Scatter(
-                    x=x_vals,
-                    y=s.get("valores", []),
-                    mode="lines+markers",
-                    name=s.get("nombre", "Serie"),
-                    line=dict(width=3),
-                    marker=dict(size=8)
-                ))
-            fig.update_layout(
-                title=titulo,
-                xaxis_title="Periodo",
-                yaxis_title=unidad,
-                hovermode="x unified",
-                template="plotly_white"
-            )
-
-        elif tipo in ["barra", "barras", "bar"]:
-            for s in series:
-                fig.add_trace(go.Bar(
-                    x=x_vals,
-                    y=s.get("valores", []),
-                    name=s.get("nombre", "Serie")
-                ))
-            fig.update_layout(
-                title=titulo,
-                xaxis_title="Categoría",
-                yaxis_title=unidad,
-                barmode="group",
-                template="plotly_white"
-            )
-
-        elif tipo in ["torta", "pie", "donut"]:
-            labels = x_vals
-            values = []
-            if series and "valores" in series[0]:
-                values = series[0]["valores"]
-            elif "valores" in chart_data:
-                values = chart_data["valores"]
-
-            fig.add_trace(go.Pie(
-                labels=labels,
-                values=values,
-                hole=0.4
-            ))
-            fig.update_layout(
-                title=titulo,
-                template="plotly_white"
-            )
-
-        fig.update_layout(
-            margin=dict(l=40, r=40, t=50, b=40),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig, use_container_width=True)
+                df_chart[s.get("nombre", "Serie")] = s.get("valores", [])
+            st.markdown(f"**📈 {titulo}**")
+            if "barra" in tipo:
+                st.bar_chart(df_chart)
+            else:
+                st.line_chart(df_chart)
     except Exception as e:
         st.warning(f"No se pudo graficar automáticamente: {e}")
 
@@ -668,68 +673,76 @@ with col_header:
     st.caption("Agente Único Master de Inteligencia Operativa")
 
 with st.sidebar:
-    if os.path.exists("bot_avatar.png"):
-        st.image("bot_avatar.png", width=90)
-
-    # Identificación del usuario activo
-    st.markdown(f"👤 **Usuario:** `{st.session_state.get('user_display', 'Anónimo')}`")
+    # Fila compacta: Avatar y Usuario
+    col_av, col_usr = st.columns([0.28, 0.72], vertical_alignment="center")
+    with col_av:
+        if os.path.exists("bot_avatar.png"):
+            st.image("bot_avatar.png", width=46)
+        else:
+            st.markdown("🤖")
+    with col_usr:
+        st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: #1e293b; line-height: 1.2;'>👤 Usuario:<br><span style='background:#f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace;'>{st.session_state.get('user_display', 'Anónimo')}</span></div>", unsafe_allow_html=True)
     
     # ---------------------------------------------------------
-    # BOTÓN VERDE DE USUARIOS ACTIVOS EN TIEMPO REAL
+    # BOTÓN VERDE DE USUARIOS ACTIVOS (COMPACTO)
     # ---------------------------------------------------------
     presencia = get_presencia_global()
     ahora_timestamp = time.time()
-    # Usuarios activos en los últimos 5 minutos (300 seg)
     activos_en_linea = {uid: info for uid, info in presencia.items() if ahora_timestamp - info["last_seen"] < 300}
     cant_activos = len(activos_en_linea)
 
-    # Indicador / Botón verde llamativo (solo conteo público)
     texto_activos = f"🟢 {cant_activos} {'Usuario activo' if cant_activos == 1 else 'Usuarios activos'}"
     st.markdown(f"""
-    <div style="background-color: #dcfce7; border: 2px solid #22c55e; color: #15803d; padding: 10px 12px; border-radius: 8px; font-weight: 700; text-align: center; font-size: 14px; margin-top: 8px; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(34, 197, 94, 0.2);">
+    <div style="background-color: #dcfce7; border: 1.5px solid #22c55e; color: #15803d; padding: 5px 8px; border-radius: 6px; font-weight: 700; text-align: center; font-size: 12.5px; margin: 2px 0 4px 0;">
         {texto_activos}
     </div>
     """, unsafe_allow_html=True)
 
-    st.divider()
-
-    st.header("Información del Sistema")
-    st.write("**Total de registros:**", len(df_base))
-    if "PCRC" in df_base.columns:
-        st.write("**PCRCs:**", df_base["PCRC"].nunique())
-    if "PROVEEDOR" in df_base.columns:
-        proveedores = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()]
-        st.write("**Proveedores:**", ", ".join(proveedores))
+    # Bloque de Información del Sistema Compacto
+    st.markdown("<hr style='margin: 4px 0; border: none; border-top: 1px solid #cbd5e1;'>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 12px; font-weight: 700; color: #1e293b; margin-bottom: 2px;'>📊 Información del Sistema</div>", unsafe_allow_html=True)
     
-    # Fecha de actualización CONGELADA fija
+    cant_pcrcs = df_base["PCRC"].nunique() if "PCRC" in df_base.columns else 0
+    provs = [str(p) for p in df_base["PROVEEDOR"].dropna().unique()] if "PROVEEDOR" in df_base.columns else []
+    provs_txt = ", ".join(provs)
     fecha_base_str = obtener_fecha_base(nombre_archivo_base)
-    st.caption(f"🕒 **Base actualizada:** {fecha_base_str}")
-    
-    st.caption("⚡ **Powered by Mauro. R**")
-    st.divider()
 
-    # Botón para limpiar su propia conversación
-    if st.button("🗑️ Nueva conversación"):
-        st.session_state.messages = [
-            {
-                "role": "assistant",
-                "content": f"¡Hola **{st.session_state.user_display}**! Comenzamos una nueva conversación. ¿Qué necesitas consultar hoy?",
-                "chart": None
-            }
-        ]
-        guardar_historial_usuario(st.session_state.current_user, st.session_state.messages)
-        st.rerun()
+    st.markdown(f"""
+    <div style='font-size: 11.5px; line-height: 1.35; color: #334155;'>
+        • <b>Registros:</b> <code>{len(df_base)}</code> &nbsp;|&nbsp; <b>PCRCs:</b> <code>{cant_pcrcs}</code><br>
+        • <b>Proveedores:</b> {provs_txt}<br>
+        • 🕒 <b>Base:</b> {fecha_base_str}<br>
+        <span style='color: #64748b; font-size: 10.5px;'>⚡ <b>Powered by Mauro. R</b></span>
+    </div>
+    """, unsafe_allow_html=True)
 
-    if st.button("🚪 Cerrar Sesión"):
-        presencia = get_presencia_global()
-        if st.session_state.current_user in presencia:
-            del presencia[st.session_state.current_user]
-        st.session_state.authenticated = False
-        st.session_state.general_authenticated = False
-        st.session_state.admin_authenticated = False
-        st.session_state.current_user = None
-        st.session_state.user_display = ""
-        st.rerun()
+    st.markdown("<hr style='margin: 4px 0 6px 0; border: none; border-top: 1px solid #cbd5e1;'>", unsafe_allow_html=True)
+
+    # Botones de Acción en una sola fila (2 columnas)
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button("🗑️ Limpiar", use_container_width=True, help="Iniciar nueva conversación"):
+            st.session_state.messages = [
+                {
+                    "role": "assistant",
+                    "content": f"¡Hola **{st.session_state.user_display}**! Comenzamos una nueva conversación. ¿Qué necesitas consultar hoy?",
+                    "chart": None
+                }
+            ]
+            guardar_historial_usuario(st.session_state.current_user, st.session_state.messages)
+            st.rerun()
+
+    with col_b2:
+        if st.button("🚪 Salir", use_container_width=True, help="Cerrar sesión actual"):
+            presencia = get_presencia_global()
+            if st.session_state.current_user in presencia:
+                del presencia[st.session_state.current_user]
+            st.session_state.authenticated = False
+            st.session_state.general_authenticated = False
+            st.session_state.admin_authenticated = False
+            st.session_state.current_user = None
+            st.session_state.user_display = ""
+            st.rerun()
 
 # Renderizar historial personal del usuario
 for msg in st.session_state.messages:
@@ -754,7 +767,6 @@ if prompt_usuario := st.chat_input("Escribe tu consulta sobre TMO, NPS, SPL o Tr
         frase_aleatoria = random.choice(FRASES_SIMPSON)
         with st.spinner(frase_aleatoria):
             historial_gemini = []
-            # Tomar los últimos 6 mensajes para contexto conversacional
             for m in st.session_state.messages[-7:-1]:
                 rol = "model" if m["role"] == "assistant" else "user"
                 historial_gemini.append(f"{rol}: {m['content']}")
